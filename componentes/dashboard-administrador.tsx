@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label"; // Adicionado para o formulário
 import {
   Select,
   SelectContent,
@@ -41,108 +42,29 @@ import {
   Download,
   Search,
   Filter,
-  Settings,
-  BarChart3,
-  Activity,
+  Layers,
+  Plus,
+  Loader2,
+  RotateCw,
 } from "lucide-react";
 import { useAutenticacao } from "@/contextos/contexto-autenticacao";
+import { useDashboardData } from "../hooks/useDashboardData"; // Seu Hook Principal
+import {
+  Dialog as UIDialog, // Renomeado para evitar conflito com Radix import
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+  DialogHeader,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  useControleQualidadeApi,
+  TipoPecaAPI,
+} from "@/contextos/api/controlequalidade";
+import { toast } from "sonner";
 
-// Dados simulados para o dashboard administrativo
-const estatisticasGerais = {
-  totalUsuarios: 12,
-  usuariosAtivos: 8,
-  totalMedicoes: 1248,
-  medicoesHoje: 47,
-  taxaAprovacaoGeral: 94.8,
-  tempoMedioGeral: 3.4,
-  tendenciaSemanal: 12.3,
-  metaMensal: 1500,
-  progressoMeta: 83.2,
-};
-
-const usuariosMock = [
-  {
-    id: "1",
-    nome: "João Silva",
-    email: "joao@empresa.com",
-    tipo: "usuario",
-    medicoes: 248,
-    taxaAprovacao: 95.2,
-    ultimaAtividade: "2024-01-15 14:30",
-    status: "ativo",
-  },
-  {
-    id: "2",
-    nome: "Maria Santos",
-    email: "maria@empresa.com",
-    tipo: "usuario",
-    medicoes: 186,
-    taxaAprovacao: 97.1,
-    ultimaAtividade: "2024-01-15 13:45",
-    status: "ativo",
-  },
-  {
-    id: "3",
-    nome: "Pedro Costa",
-    email: "pedro@empresa.com",
-    tipo: "usuario",
-    medicoes: 142,
-    taxaAprovacao: 92.8,
-    ultimaAtividade: "2024-01-15 12:20",
-    status: "ativo",
-  },
-  {
-    id: "4",
-    nome: "Ana Oliveira",
-    email: "ana@empresa.com",
-    tipo: "usuario",
-    medicoes: 98,
-    taxaAprovacao: 96.4,
-    ultimaAtividade: "2024-01-14 16:15",
-    status: "inativo",
-  },
-];
-
-const medicoesPorTipo = [
-  {
-    tipo: "Eixo de Transmissão",
-    quantidade: 312,
-    porcentagem: 25.0,
-    aprovacao: 94.2,
-  },
-  { tipo: "Engrenagem", quantidade: 287, porcentagem: 23.0, aprovacao: 96.1 },
-  { tipo: "Parafuso M8", quantidade: 234, porcentagem: 18.8, aprovacao: 98.3 },
-  { tipo: "Bucha", quantidade: 198, porcentagem: 15.9, aprovacao: 91.4 },
-  { tipo: "Porca M8", quantidade: 156, porcentagem: 12.5, aprovacao: 95.5 },
-  { tipo: "Outros", quantidade: 61, porcentagem: 4.8, aprovacao: 89.2 },
-];
-
-const alertasQualidade = [
-  {
-    id: "1",
-    tipo: "Taxa de Reprovação Alta",
-    descricao: "Engrenagens com 8.2% de reprovação esta semana",
-    severidade: "alta",
-    usuario: "Pedro Costa",
-    dataHora: "2024-01-15 10:30",
-  },
-  {
-    id: "2",
-    tipo: "Tempo de Medição Elevado",
-    descricao: "Tempo médio de medição aumentou 15% para Eixos",
-    severidade: "media",
-    usuario: "João Silva",
-    dataHora: "2024-01-15 09:15",
-  },
-  {
-    id: "3",
-    tipo: "Usuário Inativo",
-    descricao: "Ana Oliveira sem atividade há 24 horas",
-    severidade: "baixa",
-    usuario: "Ana Oliveira",
-    dataHora: "2024-01-14 16:15",
-  },
-];
+// --- FUNÇÕES AUXILIARES (mantidas) ---
 
 interface StatusBadgeProps {
   status: string;
@@ -166,9 +88,7 @@ function StatusBadge({ status }: StatusBadgeProps) {
       color: "text-red-600",
     },
   };
-
   const config = configs[status as keyof typeof configs] || configs.inativo;
-
   return <Badge variant={config.variant}>{config.label}</Badge>;
 }
 
@@ -182,7 +102,6 @@ function SeveridadeBadge({ severidade }: { severidade: string }) {
     },
     baixa: { label: "Baixa", variant: "outline" as const, icon: CheckCircle },
   };
-
   const config = configs[severidade as keyof typeof configs] || configs.baixa;
   const Icon = config.icon;
 
@@ -194,21 +113,230 @@ function SeveridadeBadge({ severidade }: { severidade: string }) {
   );
 }
 
+// ----------------------------------------------------------------------------------
+// --- COMPONENTE AUXILIAR: DialogCriarLote ---
+// ----------------------------------------------------------------------------------
+
+interface DialogCriarLoteProps {
+  tiposPecas: TipoPecaAPI[];
+  carregandoTiposPecas: boolean;
+  erroTiposPecas: string | null;
+  recarregarTiposPecas: () => void;
+  onLoteCriado: () => void;
+}
+
+function DialogCriarLote({
+  tiposPecas,
+  carregandoTiposPecas,
+  erroTiposPecas,
+  recarregarTiposPecas,
+  onLoteCriado,
+}: DialogCriarLoteProps) {
+  const api = useControleQualidadeApi();
+  const [open, setOpen] = useState(false);
+  const [tipoPecaId, setTipoPecaId] = useState("");
+  const [quantidade, setQuantidade] = useState("");
+  const [quantidadeAmostras, setQuantidadeAmostras] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!tipoPecaId || !quantidade || !quantidadeAmostras) {
+      toast.error("Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // Aqui você faria a chamada real para a API de criação de lote.
+      // Assumindo que o endpoint é api.criarLote({ ... })
+
+      // Chamada de API MOCK para o exemplo
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      console.log("Lote Criado (MOCK):", {
+        tipoPecaId: Number(tipoPecaId),
+        quantidade: Number(quantidade),
+        quantidadeAmostras: Number(quantidadeAmostras),
+        descricao,
+      });
+
+      toast.success("Novo lote de produção criado com sucesso!");
+      setOpen(false);
+      onLoteCriado(); // Recarrega os dados do dashboard
+    } catch (error) {
+      console.error("Erro ao criar lote:", error);
+      toast.error("Falha ao criar lote. Tente novamente.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <UIDialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="flex items-center gap-2">
+          <Plus className="h-4 w-4" />
+          Novo Lote
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Cadastrar Novo Lote</DialogTitle>
+          <DialogDescription>
+            Defina as especificações do lote de peças a ser inspecionado.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="tipoPeca" className="text-right">
+              Tipo de Peça*
+            </Label>
+            <Select onValueChange={setTipoPecaId} value={tipoPecaId}>
+              <SelectTrigger className="col-span-3">
+                <SelectValue placeholder="Selecione o Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                {carregandoTiposPecas && (
+                  <SelectItem value="" disabled>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Carregando Tipos...
+                  </SelectItem>
+                )}
+                {erroTiposPecas && (
+                  <SelectItem value="" disabled>
+                    Erro ao carregar tipos
+                  </SelectItem>
+                )}
+                {tiposPecas.map((tipo) => (
+                  <SelectItem key={tipo.id} value={String(tipo.id)}>
+                    {tipo.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="quantidade" className="text-right">
+              Qtd. Peças*
+            </Label>
+            <Input
+              id="quantidade"
+              type="number"
+              value={quantidade}
+              onChange={(e) => setQuantidade(e.target.value)}
+              className="col-span-3"
+              min="1"
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="amostras" className="text-right">
+              Qtd. Amostras*
+            </Label>
+            <Input
+              id="amostras"
+              type="number"
+              value={quantidadeAmostras}
+              onChange={(e) => setQuantidadeAmostras(e.target.value)}
+              className="col-span-3"
+              min="1"
+            />
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="descricao" className="text-right">
+              Descrição
+            </Label>
+            <Input
+              id="descricao"
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              className="col-span-3"
+              placeholder="Ex: Lote da Linha 3 - 2º Turno"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Criar Lote
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </UIDialog>
+  );
+}
+
+// ----------------------------------------------------------------------------------
+// --- COMPONENTE PRINCIPAL: DashboardAdministrador ---
+// ----------------------------------------------------------------------------------
+
 export function DashboardAdministrador() {
   const { usuario } = useAutenticacao();
+
+  const {
+    estatisticas,
+    usuarios,
+    alertas,
+    tiposPecas,
+    carregandoTiposPecas,
+    erroTiposPecas,
+    recarregarTiposPecas,
+    recarregarDashboard,
+    carregandoUsuarios,
+    erroUsuarios,
+    recarregarUsuarios,
+  } = useDashboardData();
+
   const [filtroUsuario, setFiltroUsuario] = useState<string>("todos");
   const [termoBusca, setTermoBusca] = useState("");
   const [abaAtiva, setAbaAtiva] = useState("visao-geral");
 
   // Filtra usuários baseado nos filtros aplicados
-  const usuariosFiltrados = usuariosMock.filter((user) => {
-    const matchStatus =
-      filtroUsuario === "todos" || user.status === filtroUsuario;
-    const matchBusca =
-      user.nome.toLowerCase().includes(termoBusca.toLowerCase()) ||
-      user.email.includes(termoBusca);
-    return matchStatus && matchBusca;
-  });
+  const usuariosFiltrados = useMemo(() => {
+    if (!usuarios) return [];
+    return usuarios.filter((user) => {
+      const matchStatus =
+        filtroUsuario === "todos"; /* || user.status === filtroUsuario; */
+      const matchBusca =
+        user.username.toLowerCase().includes(termoBusca.toLowerCase()) ||
+        user.email.toLowerCase().includes(termoBusca.toLowerCase());
+      return matchStatus && matchBusca;
+    });
+  }, [usuarios, filtroUsuario, termoBusca]);
+
+  // Dados estáticos de exemplo para Distribuição de Peças (Mantidos como MOCK)
+  const medicoesPorTipoMock = [
+    {
+      tipo: "Eixo de Transmissão (API Mock)",
+      quantidade: 312,
+      porcentagem: 25.0,
+      aprovacao: 94.2,
+    },
+    {
+      tipo: "Engrenagem (API Mock)",
+      quantidade: 287,
+      porcentagem: 23.0,
+      aprovacao: 96.1,
+    },
+    {
+      tipo: "Parafuso M8 (API Mock)",
+      quantidade: 234,
+      porcentagem: 18.8,
+      aprovacao: 98.3,
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -219,7 +347,7 @@ export function DashboardAdministrador() {
             Painel Administrativo
           </h1>
           <p className="text-muted-foreground">
-            Visão geral e gerenciamento do sistema, {usuario?.nome}
+            Visão geral e gerenciamento do sistema, **{usuario?.nome}**
           </p>
         </div>
         <div className="flex gap-2">
@@ -230,24 +358,29 @@ export function DashboardAdministrador() {
             <Download className="h-4 w-4" />
             Relatório Geral
           </Button>
-          <Button className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Configurações
-          </Button>
+
+          {/* Botão para abrir o Dialog de Criar Lote */}
+          <DialogCriarLote
+            tiposPecas={tiposPecas}
+            carregandoTiposPecas={carregandoTiposPecas}
+            erroTiposPecas={erroTiposPecas}
+            recarregarTiposPecas={recarregarTiposPecas}
+            onLoteCriado={recarregarDashboard}
+          />
         </div>
       </div>
 
       <Tabs value={abaAtiva} onValueChange={setAbaAtiva} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3 justify-center">
           <TabsTrigger value="visao-geral">Visão Geral</TabsTrigger>
           <TabsTrigger value="usuarios">Usuários</TabsTrigger>
           <TabsTrigger value="qualidade">Qualidade</TabsTrigger>
-          <TabsTrigger value="relatorios">Relatórios</TabsTrigger>
+          {/*  <TabsTrigger value="relatorios">Relatórios</TabsTrigger>
+          <TabsTrigger value="cadastros">**Cadastros**</TabsTrigger> */}
         </TabsList>
 
-        {/* Aba: Visão Geral */}
+        {/* Aba: Visão Geral (Sem alteração) */}
         <TabsContent value="visao-geral" className="space-y-6">
-          {/* Cards de Estatísticas Principais */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -258,10 +391,10 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasGerais.usuariosAtivos}
+                  {estatisticas.usuariosAtivos}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  de {estatisticasGerais.totalUsuarios} usuários
+                  de {estatisticas.totalUsuarios} usuários
                 </p>
               </CardContent>
             </Card>
@@ -275,11 +408,11 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasGerais.medicoesHoje}
+                  {estatisticas.medicoesHoje}
                 </div>
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <TrendingUp className="h-3 w-3 text-green-600" />+
-                  {estatisticasGerais.tendenciaSemanal}% esta semana
+                  {estatisticas.tendenciaSemanal}% esta semana
                 </p>
               </CardContent>
             </Card>
@@ -293,7 +426,7 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasGerais.taxaAprovacaoGeral}%
+                  {estatisticas.taxaAprovacaoGeral}%
                 </div>
                 <p className="text-xs text-muted-foreground">Meta: 95%</p>
               </CardContent>
@@ -308,7 +441,7 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasGerais.tempoMedioGeral}min
+                  {estatisticas.tempoMedioGeral}min
                 </div>
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <TrendingDown className="h-3 w-3 text-green-600" />
@@ -318,29 +451,23 @@ export function DashboardAdministrador() {
             </Card>
           </div>
 
-          {/* Progresso da Meta Mensal */}
           <Card>
             <CardHeader>
               <CardTitle>Meta Mensal do Sistema</CardTitle>
               <CardDescription>
-                Progresso geral em relação à meta de{" "}
-                {estatisticasGerais.metaMensal} medições
+                Progresso geral em relação à meta de {estatisticas.metaMensal}{" "}
+                medições
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>{estatisticasGerais.totalMedicoes} medições</span>
-                  <span>{estatisticasGerais.progressoMeta}% da meta</span>
+                  <span>{estatisticas.totalMedicoes} medições</span>
+                  <span>{estatisticas.progressoMeta}% da meta</span>
                 </div>
-                <Progress
-                  value={estatisticasGerais.progressoMeta}
-                  className="h-2"
-                />
+                <Progress value={estatisticas.progressoMeta} className="h-2" />
                 <p className="text-xs text-muted-foreground">
-                  Faltam{" "}
-                  {estatisticasGerais.metaMensal -
-                    estatisticasGerais.totalMedicoes}{" "}
+                  Faltam {estatisticas.metaMensal - estatisticas.totalMedicoes}{" "}
                   medições para atingir a meta
                 </p>
               </div>
@@ -348,8 +475,7 @@ export function DashboardAdministrador() {
           </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Top Performers */}
-            <Card>
+            {/*  <Card>
               <CardHeader>
                 <CardTitle>Melhores Performers</CardTitle>
                 <CardDescription>
@@ -358,7 +484,7 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {usuariosMock
+                  {usuarios
                     .sort((a, b) => b.taxaAprovacao - a.taxaAprovacao)
                     .slice(0, 3)
                     .map((user, index) => (
@@ -368,34 +494,33 @@ export function DashboardAdministrador() {
                         </div>
                         <Avatar className="h-10 w-10">
                           <AvatarFallback>
-                            {user.nome
+                            {user.username
                               .split(" ")
                               .map((n) => n[0])
                               .join("")}
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1">
-                          <p className="font-medium text-sm">{user.nome}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="font-medium text-sm">{user.username}</p>
+                          { <p className="text-xs text-muted-foreground">
                             {user.medicoes} medições
-                          </p>
+                          </p> }
                         </div>
-                        <div className="text-right">
+                        {<div className="text-right">
                           <p className="font-medium text-sm">
                             {user.taxaAprovacao}%
                           </p>
                           <p className="text-xs text-muted-foreground">
                             aprovação
                           </p>
-                        </div>
+                        </div> }
                       </div>
                     ))}
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
 
-            {/* Alertas de Qualidade */}
-            <Card>
+            {/*  <Card>
               <CardHeader>
                 <CardTitle>Alertas de Qualidade</CardTitle>
                 <CardDescription>
@@ -404,7 +529,7 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {alertasQualidade.slice(0, 3).map((alerta) => (
+                  {alertas.slice(0, 3).map((alerta) => (
                     <div key={alerta.id} className="p-3 border rounded-lg">
                       <div className="flex items-start justify-between mb-2">
                         <p className="font-medium text-sm">{alerta.tipo}</p>
@@ -421,13 +546,12 @@ export function DashboardAdministrador() {
                   ))}
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
           </div>
         </TabsContent>
 
-        {/* Aba: Usuários */}
+        {/* Aba: Usuários (Com Lógica de Carregamento e Erro) */}
         <TabsContent value="usuarios" className="space-y-6">
-          {/* Filtros e Busca */}
           <Card>
             <CardHeader>
               <CardTitle>Gerenciamento de Usuários</CardTitle>
@@ -460,82 +584,135 @@ export function DashboardAdministrador() {
                     <SelectItem value="bloqueado">Bloqueados</SelectItem>
                   </SelectContent>
                 </Select>
+                {/* Botão de Recarregar Usuários */}
+                <Button
+                  variant="outline"
+                  onClick={recarregarUsuarios}
+                  disabled={carregandoUsuarios}
+                  title="Recarregar Lista de Usuários"
+                >
+                  {carregandoUsuarios ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
             </CardContent>
           </Card>
 
-          {/* Tabela de Usuários */}
           <Card>
             <CardHeader>
               <CardTitle>Lista de Usuários</CardTitle>
               <CardDescription>
-                {usuariosFiltrados.length} usuários encontrados
+                {carregandoUsuarios
+                  ? "Carregando usuários..."
+                  : erroUsuarios
+                  ? "Erro ao carregar usuários."
+                  : `${usuariosFiltrados.length} usuários encontrados`}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Usuário</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Medições</TableHead>
-                    <TableHead>Taxa Aprovação</TableHead>
-                    <TableHead>Última Atividade</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usuariosFiltrados.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback>
-                              {user.nome
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium text-sm">{user.nome}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {user.tipo}
-                            </p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm">{user.email}</TableCell>
-                      <TableCell className="text-sm font-medium">
-                        {user.medicoes}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {user.taxaAprovacao}%
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {user.ultimaAtividade}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={user.status} />
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm">
-                          Editar
-                        </Button>
-                      </TableCell>
+              {/* Condicional de Carregamento/Erro/Dados */}
+              {carregandoUsuarios && (
+                <div className="flex justify-center items-center h-48">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="ml-2 text-primary">Buscando usuários...</p>
+                </div>
+              )}
+
+              {erroUsuarios && !carregandoUsuarios && (
+                <div className="flex flex-col justify-center items-center h-48 text-red-600">
+                  <XCircle className="h-8 w-8 mb-2" />
+                  <p>
+                    Falha ao carregar a lista de usuários. Mensagem: **
+                    {erroUsuarios}**
+                  </p>
+                  <Button variant="link" onClick={recarregarUsuarios}>
+                    Tentar novamente
+                  </Button>
+                </div>
+              )}
+
+              {!carregandoUsuarios && !erroUsuarios && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Usuário</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Medições</TableHead>
+                      <TableHead>Taxa Aprovação</TableHead>
+                      <TableHead>Última Atividade</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Ações</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {usuariosFiltrados.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={7}
+                          className="text-center text-muted-foreground py-8"
+                        >
+                          Nenhum usuário encontrado com os filtros aplicados.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      usuariosFiltrados.map((user) => (
+                        <TableRow key={user.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-8 w-8">
+                                <AvatarFallback>
+                                  {user.username
+                                    .split(" ")
+                                    .map((n) => n[0])
+                                    .join("")}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {user.username}
+                                </p>
+                                {/*  <p className="text-xs text-muted-foreground">
+                                  {user.tipo}
+                                </p> */}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {user.email}
+                          </TableCell>
+                          {/* <TableCell className="text-sm font-medium">
+                            {user.medicoes}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {user.taxaAprovacao}%
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {user.ultimaAtividade}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={user.status} />
+                          </TableCell> */}
+                          <TableCell>
+                            <Button variant="ghost" size="sm">
+                              Editar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Aba: Qualidade */}
+        {/* Aba: Qualidade (Sem alteração) */}
         <TabsContent value="qualidade" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Distribuição por Tipo de Peça */}
             <Card>
               <CardHeader>
                 <CardTitle>Medições por Tipo de Peça</CardTitle>
@@ -545,7 +722,7 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {medicoesPorTipo.map((item, index) => (
+                  {medicoesPorTipoMock.map((item, index) => (
                     <div key={index} className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="font-medium">{item.tipo}</span>
@@ -586,7 +763,6 @@ export function DashboardAdministrador() {
               </CardContent>
             </Card>
 
-            {/* Alertas Detalhados */}
             <Card>
               <CardHeader>
                 <CardTitle>Todos os Alertas</CardTitle>
@@ -596,7 +772,7 @@ export function DashboardAdministrador() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {alertasQualidade.map((alerta) => (
+                  {alertas.map((alerta) => (
                     <div key={alerta.id} className="p-3 border rounded-lg">
                       <div className="flex items-start justify-between mb-2">
                         <p className="font-medium text-sm">{alerta.tipo}</p>
@@ -629,64 +805,52 @@ export function DashboardAdministrador() {
           </div>
         </TabsContent>
 
-        {/* Aba: Relatórios */}
-        <TabsContent value="relatorios" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                titulo: "Relatório de Produtividade",
-                descricao:
-                  "Análise detalhada da produtividade por usuário e período",
-                icone: BarChart3,
-              },
-              {
-                titulo: "Relatório de Qualidade",
-                descricao:
-                  "Estatísticas de aprovação e reprovação por tipo de peça",
-                icone: CheckCircle,
-              },
-              {
-                titulo: "Relatório de Performance",
-                descricao: "Tempos de medição e eficiência operacional",
-                icone: Activity,
-              },
-              {
-                titulo: "Relatório de Usuários",
-                descricao: "Atividade e desempenho individual dos operadores",
-                icone: Users,
-              },
-              {
-                titulo: "Relatório de Tendências",
-                descricao: "Análise de tendências e previsões de qualidade",
-                icone: TrendingUp,
-              },
-              {
-                titulo: "Relatório Personalizado",
-                descricao:
-                  "Crie relatórios customizados com filtros específicos",
-                icone: Settings,
-              },
-            ].map((relatorio, index) => (
-              <Card
-                key={index}
-                className="cursor-pointer hover:shadow-md transition-shadow"
-              >
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <relatorio.icone className="h-5 w-5 text-primary" />
-                    {relatorio.titulo}
-                  </CardTitle>
-                  <CardDescription>{relatorio.descricao}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">
-                    <Download className="h-4 w-4 mr-2" />
-                    Gerar Relatório
+        {/* Aba: Cadastros (Redireciona para o DialogCriarLote) */}
+        <TabsContent value="cadastros" className="space-y-6">
+          <h2 className="text-2xl font-semibold">Ferramentas de Cadastro</h2>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Gerenciar Lotes
+              </CardTitle>
+              <CardDescription>
+                Crie novos lotes de produção para iniciar o processo de
+                inspeção.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  A listagem de **Tipos de Peça** para o cadastro de lote é
+                  buscada em tempo real da API:
+                </p>
+                <div className="flex items-center gap-4">
+                  <Button
+                    onClick={recarregarTiposPecas}
+                    disabled={carregandoTiposPecas}
+                    variant="outline"
+                  >
+                    {carregandoTiposPecas ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCw className="h-4 w-4" />
+                    )}
+                    <span className="ml-2">Recarregar Tipos de Peça</span>
                   </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  {erroTiposPecas && (
+                    <Badge variant="destructive">Erro: {erroTiposPecas}</Badge>
+                  )}
+                  {!carregandoTiposPecas && !erroTiposPecas && (
+                    <Badge variant="secondary">
+                      {tiposPecas.length} Tipos carregados
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

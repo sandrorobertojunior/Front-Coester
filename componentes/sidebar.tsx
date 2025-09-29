@@ -1,3 +1,4 @@
+// src/components/Sidebar.tsx
 "use client";
 
 import type React from "react";
@@ -18,7 +19,7 @@ import {
   Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useIsMobile } from "@/components/ui/use-mobile";
+// import { useIsMobile } from "@/components/ui/use-mobile"; // Removido por não estar em uso
 
 interface ItemMenuProps {
   icone: React.ReactNode;
@@ -69,7 +70,7 @@ export function Sidebar({
     },
     {
       id: "nova-medicao",
-      titulo: "Nova Medição",
+      titulo: "Cadastrar Medição",
       icone: <Plus className="h-5 w-5" />,
       visivel: true,
     },
@@ -77,11 +78,12 @@ export function Sidebar({
       id: "medicoes",
       titulo: "Medições",
       icone: <Ruler className="h-5 w-5" />,
+      // Mantido como false para seguir a estrutura original, mas pode ser mudado para 'true' se for necessário
       visivel: false,
     },
     {
       id: "tipos-pecas",
-      titulo: "Tipos de Peças",
+      titulo: "Lotes",
       icone: <Settings className="h-5 w-5" />,
       visivel: ehAdmin,
     },
@@ -152,8 +154,9 @@ export function Sidebar({
               ) : (
                 <User className="h-3 w-3 text-sidebar-foreground/70" />
               )}
+              {/* ALTERAÇÃO: Trocando "Usuário" por "Colaborador" */}
               <p className="text-xs text-sidebar-foreground/70">
-                {ehAdmin ? "Administrador" : "Usuário"}
+                {ehAdmin ? "Administrador" : "Colaborador"}
               </p>
             </div>
           </div>

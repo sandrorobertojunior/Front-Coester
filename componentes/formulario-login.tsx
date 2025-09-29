@@ -1,38 +1,46 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Ruler, User, Lock } from "lucide-react"
-import { useAutenticacao } from "@/contextos/contexto-autenticacao"
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Ruler, User, Lock } from "lucide-react";
+import { useAutenticacao } from "@/contextos/contexto-autenticacao";
 
 export function FormularioLogin() {
-  const [email, setEmail] = useState("")
-  const [senha, setSenha] = useState("")
-  const [erro, setErro] = useState("")
-  const { login, carregando } = useAutenticacao()
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const { login, carregando } = useAutenticacao();
 
   // Manipula o envio do formulário de login
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setErro("")
+    e.preventDefault();
+    setErro("");
 
     if (!email || !senha) {
-      setErro("Por favor, preencha todos os campos")
-      return
+      setErro("Por favor, preencha todos os campos");
+      return;
     }
 
-    const sucesso = await login(email, senha)
-    if (!sucesso) {
-      setErro("Email ou senha incorretos")
-    }
-  }
+    // Recebe a mensagem de erro ou null (sucesso)
+    const erroRetornado = await login(email, senha);
 
+    if (erroRetornado) {
+      // Define a mensagem de erro específica
+      setErro("senha incorreta ou usuário não encontrado");
+    }
+  };
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
@@ -42,7 +50,9 @@ export function FormularioLogin() {
               <Ruler className="h-8 w-8 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold text-foreground">Sistema de Medição</CardTitle>
+          <CardTitle className="text-2xl font-bold text-foreground">
+            Sistema de Medição
+          </CardTitle>
           <CardDescription className="text-muted-foreground">
             Faça login para acessar o sistema de medição de peças
           </CardDescription>
@@ -103,21 +113,8 @@ export function FormularioLogin() {
               )}
             </Button>
           </form>
-
-          {/* Credenciais de demonstração */}
-          <div className="mt-6 p-4 bg-muted rounded-lg">
-            <h4 className="text-sm font-medium mb-2 text-muted-foreground">Credenciais de Demonstração:</h4>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <p>
-                <strong>Usuário:</strong> usuario@empresa.com / 123456
-              </p>
-              <p>
-                <strong>Admin:</strong> admin@empresa.com / admin123
-              </p>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

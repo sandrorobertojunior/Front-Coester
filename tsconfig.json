@@ -2,7 +2,7 @@
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "target": "ES6",
+    "target": "ES2020", // MUDANÇA AQUI: de "ES6" para "ES2020"
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,

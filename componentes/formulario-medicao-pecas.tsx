@@ -1,6 +1,5 @@
 "use client";
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -19,8 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import {
   Ruler,
@@ -30,303 +30,274 @@ import {
   AlertTriangle,
   Calculator,
   Info,
+  Gauge,
+  Loader,
+  ThumbsUp,
+  ThumbsDown,
+  Bluetooth,
+  Plug,
+  Unplug,
 } from "lucide-react";
-import { useAutenticacao } from "@/contextos/contexto-autenticacao";
+import {
+  CampoPeca,
+  IFormularioMedicaoViewProps,
+} from "@/hooks/formulario-medicao.types";
+import { useConnectarBluetooth } from "@/hooks/useConnectarBluetooth";
 
-const obterTiposPecas = () => [
-  {
-    id: "eixo-transmissao",
-    nome: "Eixo de Transmissão",
-    campos: [
-      {
-        nome: "comprimento",
-        label: "Comprimento (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 500,
-      },
-      {
-        nome: "diametro",
-        label: "Diâmetro (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 100,
-      },
-    ],
-    especificacoes: {
-      comprimento: { min: 140, max: 160, tolerancia: 0.1 },
-      diametro: { min: 24, max: 26, tolerancia: 0.1 },
-    },
-  },
-  {
-    id: "engrenagem",
-    nome: "Engrenagem",
-    campos: [
-      {
-        nome: "diametro",
-        label: "Diâmetro (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 200,
-      },
-      {
-        nome: "espessura",
-        label: "Espessura (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 50,
-      },
-      {
-        nome: "numeroDentes",
-        label: "Número de Dentes",
-        tipo: "number",
-        obrigatorio: true,
-        min: 1,
-        max: 200,
-      },
-    ],
-    especificacoes: {
-      diametro: { min: 75, max: 85, tolerancia: 0.05 },
-      espessura: { min: 10, max: 14, tolerancia: 0.05 },
-    },
-  },
-  {
-    id: "parafuso-m8",
-    nome: "Parafuso M8",
-    campos: [
-      {
-        nome: "comprimento",
-        label: "Comprimento (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 100,
-      },
-      {
-        nome: "diametro",
-        label: "Diâmetro (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 20,
-      },
-      {
-        nome: "passo",
-        label: "Passo da Rosca (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 5,
-        step: 0.1,
-      },
-    ],
-    especificacoes: {
-      comprimento: { min: 38, max: 42, tolerancia: 0.02 },
-      diametro: { min: 7.8, max: 8.2, tolerancia: 0.02 },
-    },
-  },
-  {
-    id: "bucha",
-    nome: "Bucha",
-    campos: [
-      {
-        nome: "diametroInterno",
-        label: "Diâmetro Interno (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 100,
-      },
-      {
-        nome: "diametroExterno",
-        label: "Diâmetro Externo (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 100,
-      },
-      {
-        nome: "altura",
-        label: "Altura (mm)",
-        tipo: "number",
-        obrigatorio: true,
-        min: 0,
-        max: 100,
-      },
-    ],
-    especificacoes: {
-      diametroInterno: { min: 14.5, max: 15.5, tolerancia: 0.03 },
-      diametroExterno: { min: 24.5, max: 25.5, tolerancia: 0.03 },
-    },
-  },
-];
-
-interface FormularioMedicaoPecasProps {
-  onVoltar?: () => void;
+interface LoteDisponivel {
+  id: number;
+  codigoLote: string;
+  descricao: string;
+  status: "EM_ANDAMENTO" | "EM_ANALISE" | "APROVADO" | "REPROVADO" | string;
 }
 
 export function FormularioMedicaoPecas({
+  lotesDisponiveis,
+  carregandoLotes,
+  loteSelecionadoId,
+  setLoteSelecionadoId,
+  tipoPeca,
+  pecasNoLote,
+  modo,
+  pecaAtual,
+  cotaAtual,
+  valores,
+  observacoes,
+  erros,
+  medicoesAcumuladas,
+  salvando,
+  loteCompletado,
+  loteAprovado,
+  usuarioNome,
+  setModo,
+  atualizarValor,
+  setObservacoes,
+  salvarMedicao,
+  resetarFormulario,
+  verificarEspecificacao,
+  existeErroCritico,
   onVoltar,
-}: FormularioMedicaoPecasProps) {
-  const { usuario } = useAutenticacao();
-  const [tiposPecas, setTiposPecas] = useState(obterTiposPecas());
-  const [tipoPecaSelecionada, setTipoPecaSelecionada] = useState<string>("");
-  const [valores, setValores] = useState<Record<string, string>>({});
-  const [observacoes, setObservacoes] = useState("");
-  const [erros, setErros] = useState<Record<string, string>>({});
-  const [salvando, setSalvando] = useState(false);
-  const [medicaoSalva, setMedicaoSalva] = useState(false);
+  recomecarMedicao,
+  cancelarMedicao,
+}: IFormularioMedicaoViewProps & { lotesDisponiveis: LoteDisponivel[] }) {
+  const podeMostrarInputs =
+    modo === "peca-a-peca" || (modo === "cota-a-cota" && cotaAtual);
+
+  const {
+    connect,
+    disconnect,
+    isConnected,
+    valorMicrometro,
+    status,
+    deviceName,
+    resetarValorMicrometro, // <-- Pegando a nova função do hook
+  } = useConnectarBluetooth();
+
+  const inputRefs = useRef<Record<string, HTMLInputElement>>({});
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+
+  const camposParaFoco = useMemo(() => {
+    if (!tipoPeca) return [];
+    if (modo === "peca-a-peca") {
+      return tipoPeca.campos
+        .filter((c) => c.tipo === "number")
+        .map((c) => c.nome);
+    }
+    if (modo === "cota-a-cota" && cotaAtual) {
+      return [cotaAtual.nome];
+    }
+    return [];
+  }, [modo, tipoPeca, cotaAtual]);
+
+  const passarProProximoInput = useCallback(() => {
+    if (!campoFocado) {
+      const primeiroCampo = camposParaFoco[0];
+      if (primeiroCampo) {
+        setCampoFocado(primeiroCampo);
+        inputRefs.current[primeiroCampo]?.focus();
+      }
+      return;
+    }
+    const currentIndex = camposParaFoco.indexOf(campoFocado);
+    if (currentIndex === -1 || currentIndex === camposParaFoco.length - 1) {
+      return;
+    }
+    const nextCampo = camposParaFoco[currentIndex + 1];
+    if (nextCampo) {
+      setCampoFocado(nextCampo);
+      inputRefs.current[nextCampo]?.focus();
+    }
+  }, [campoFocado, camposParaFoco]);
+
+  // [MUDANÇA PRINCIPAL] Lógica de reset do valor
+  useEffect(() => {
+    // Só executa se tivermos um valor válido e um campo focado
+    if (valorMicrometro === "0.000" || !campoFocado) {
+      return;
+    }
+
+    // 1. Aplica o valor recebido no campo focado
+    atualizarValor(campoFocado, valorMicrometro);
+
+    // 2. Reseta imediatamente o valor no hook para "0.000"
+    // Isso "consome" o valor e previne que o useEffect seja disparado de novo com o mesmo valor.
+    resetarValorMicrometro();
+
+    // 3. Move o foco para o próximo campo
+    passarProProximoInput();
+  }, [
+    valorMicrometro,
+    campoFocado,
+    atualizarValor,
+    resetarValorMicrometro,
+    passarProProximoInput,
+  ]);
 
   useEffect(() => {
-    setTiposPecas(obterTiposPecas());
-  }, []);
-
-  // Obtém o tipo de peça selecionado
-  const tipoPeca = tiposPecas.find((t) => t.id === tipoPecaSelecionada);
-
-  // Atualiza valor de um campo
-  const atualizarValor = (campo: string, valor: string) => {
-    setValores((prev) => ({ ...prev, [campo]: valor }));
-    // Remove erro do campo quando usuário começa a digitar
-    if (erros[campo]) {
-      setErros((prev) => ({ ...prev, [campo]: "" }));
+    if (modo && tipoPeca && camposParaFoco.length > 0 && !campoFocado) {
+      passarProProximoInput();
     }
+  }, [modo, tipoPeca, camposParaFoco, campoFocado, passarProProximoInput]);
+
+  const CampoMedicaoAutomatica = ({ campo }: { campo: CampoPeca }) => {
+    const valor = valores[campo.nome] || "";
+    const statusSpec = verificarEspecificacao(campo.nome, valor);
+    const showCheck = campo.tipo === "number" && valor && statusSpec !== "info";
+    const isFocoAtivo = campoFocado === campo.nome;
+    return (
+      <div key={campo.nome} className="space-y-2">
+        <Label
+          htmlFor={campo.nome}
+          className={`flex items-center gap-2 ${
+            isFocoAtivo ? "font-bold text-blue-600" : "text-gray-700"
+          }`}
+        >
+          {campo.label}
+          {campo.obrigatorio && <span className="text-red-500">*</span>}
+          {showCheck && (
+            <CheckCircle
+              className={`h-4 w-4 ${
+                statusSpec === "aprovado" ? "text-green-600" : "text-red-600"
+              }`}
+            />
+          )}
+        </Label>
+        <Input
+          id={campo.nome}
+          ref={(el) => {
+            if (el) inputRefs.current[campo.nome] = el;
+          }}
+          type={campo.tipo}
+          min={campo.min}
+          max={campo.max}
+          step={campo.step}
+          value={valor}
+          onChange={(e) => atualizarValor(campo.nome, e.target.value)}
+          placeholder={`Aguardando medição BT...`}
+          readOnly={campo.tipo === "number" && isConnected}
+          className={`${erros[campo.nome] ? "border-red-500" : ""} ${
+            isFocoAtivo
+              ? "border-2 border-blue-500 bg-blue-50/50"
+              : "bg-gray-100"
+          } transition-all`}
+          onFocus={() => setCampoFocado(campo.nome)}
+        />
+        {erros[campo.nome] && (
+          <p className="text-sm text-red-600">{erros[campo.nome]}</p>
+        )}
+      </div>
+    );
   };
 
-  // Valida um campo específico
-  const validarCampo = (campo: any, valor: string) => {
-    if (campo.obrigatorio && !valor.trim()) {
-      return `${campo.label} é obrigatório`;
+  // ... (O resto do seu código permanece exatamente igual)
+  const isLoteConcluido = loteCompletado && loteAprovado !== null;
+  const statusFinal =
+    loteAprovado === true
+      ? "APROVADO"
+      : loteAprovado === false
+      ? "REPROVADO"
+      : "EM ANÁLISE";
+  const isAprovado = statusFinal === "APROVADO";
+  const statusColor = isAprovado ? "text-green-600" : "text-red-600";
+  const bgColor = isAprovado ? "bg-green-100" : "bg-red-100";
+  const getSubmitButtonText = () => {
+    if (modo === "peca-a-peca") {
+      return pecaAtual < pecasNoLote
+        ? "Salvar e Próxima Amostra"
+        : "Finalizar Lote";
     }
-
-    const numeroValor = Number.parseFloat(valor);
-    if (isNaN(numeroValor)) {
-      return `${campo.label} deve ser um número válido`;
-    }
-
-    if (campo.min !== undefined && numeroValor < campo.min) {
-      return `${campo.label} deve ser maior que ${campo.min}`;
-    }
-
-    if (campo.max !== undefined && numeroValor > campo.max) {
-      return `${campo.label} deve ser menor que ${campo.max}`;
-    }
-
-    return "";
-  };
-
-  // Verifica se valor está dentro das especificações
-  const verificarEspecificacao = (nomeCampo: string, valor: string) => {
-    if (!tipoPeca?.especificacoes[nomeCampo]) return "info";
-
-    const numeroValor = Number.parseFloat(valor);
-    if (isNaN(numeroValor)) return "info";
-
-    const spec = tipoPeca.especificacoes[nomeCampo];
-    if (numeroValor >= spec.min && numeroValor <= spec.max) {
-      return "aprovado";
-    } else {
-      return "fora-spec";
-    }
-  };
-
-  // Valida todo o formulário
-  const validarFormulario = () => {
-    if (!tipoPecaSelecionada) {
-      setErros({ geral: "Selecione um tipo de peça" });
-      return false;
-    }
-
-    const novosErros: Record<string, string> = {};
-
-    tipoPeca?.campos.forEach((campo) => {
-      const valor = valores[campo.nome] || "";
-      const erro = validarCampo(campo, valor);
-      if (erro) {
-        novosErros[campo.nome] = erro;
+    if (modo === "cota-a-cota") {
+      const isUltimaCota =
+        tipoPeca?.campos &&
+        cotaAtual &&
+        cotaAtual.nome === tipoPeca.campos[tipoPeca.campos.length - 1].nome;
+      const isUltimaPecaDaCota = pecaAtual === pecasNoLote;
+      if (isUltimaCota && isUltimaPecaDaCota) {
+        return "Finalizar Lote";
       }
-    });
-
-    setErros(novosErros);
-    return Object.keys(novosErros).length === 0;
+      if (isUltimaPecaDaCota) {
+        return "Salvar e Próxima Cota";
+      }
+      return "Salvar e Próxima Amostra";
+    }
+    return "Salvar Medição";
   };
-
-  // Reseta o formulário
-  const resetarFormulario = () => {
-    setTipoPecaSelecionada("");
-    setValores({});
-    setObservacoes("");
-    setErros({});
-    setMedicaoSalva(false);
-  };
-
-  // Salva a medição
-  const salvarMedicao = async () => {
-    if (!validarFormulario()) return;
-
-    setSalvando(true);
-
-    // Simula salvamento no backend
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    // Aqui seria feita a integração com o backend
-    const medicao = {
-      id: Date.now().toString(),
-      tipoPeca: tipoPeca?.nome,
-      valores,
-      observacoes,
-      operador: usuario?.nome,
-      dataHora: new Date().toLocaleString("pt-BR"),
-      status: "pendente", // Seria calculado baseado nas especificações
-    };
-
-    console.log("Medição salva:", medicao);
-
-    setSalvando(false);
-    setMedicaoSalva(true);
-  };
-
-  if (medicaoSalva) {
+  if (isLoteConcluido) {
     return (
       <div className="p-6">
         <Card className="max-w-2xl mx-auto">
           <CardHeader className="text-center">
-            <div className="flex justify-center mb-4">
-              <div className="p-3 bg-green-100 rounded-full">
-                <CheckCircle className="h-8 w-8 text-green-600" />
+            <div className={`p-6 rounded-lg ${bgColor} mb-4`}>
+              <div className="flex justify-center mb-2">
+                <div className="p-3 rounded-full bg-white shadow-md">
+                  {statusFinal === "APROVADO" ? (
+                    <ThumbsUp className="h-10 w-10 text-green-600" />
+                  ) : (
+                    <ThumbsDown className="h-10 w-10 text-red-600" />
+                  )}
+                </div>
               </div>
+              <CardTitle
+                className={`text-4xl font-extrabold ${statusColor} mb-2`}
+              >
+                LOTE {statusFinal}!
+              </CardTitle>
             </div>
-            <CardTitle className="text-2xl text-green-700">
-              Medição Registrada!
+            <CardTitle className="text-2xl text-blue-700">
+              Registro de Medição Concluído!
             </CardTitle>
             <CardDescription>
-              A medição da peça {tipoPeca?.nome} foi registrada com sucesso no
-              sistema.
+              O preenchimento das **{medicoesAcumuladas.length || pecasNoLote}**
+              medições de amostra para o lote **{loteSelecionadoId}** foi
+              finalizado.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="bg-muted p-4 rounded-lg">
-              <h4 className="font-medium mb-2">Resumo da Medição:</h4>
+              <h4 className="font-medium mb-2">Resumo:</h4>
               <div className="space-y-1 text-sm">
                 <p>
                   <strong>Tipo:</strong> {tipoPeca?.nome}
                 </p>
                 <p>
-                  <strong>Operador:</strong> {usuario?.nome}
+                  <strong>Peças Amostradas:</strong> {medicoesAcumuladas.length}{" "}
+                  /{pecasNoLote}
                 </p>
                 <p>
-                  <strong>Data/Hora:</strong>{" "}
-                  {new Date().toLocaleString("pt-BR")}
+                  <strong>Modo de Preenchimento:</strong>{" "}
+                  {modo === "peca-a-peca" ? "Peça-a-Peça" : "Cota-a-Cota"}
                 </p>
               </div>
             </div>
             <div className="flex gap-3">
-              <Button onClick={resetarFormulario} className="flex-1">
-                Nova Medição
+              <Button
+                onClick={() => {
+                  resetarFormulario();
+                  if (onVoltar) onVoltar();
+                }}
+                className="flex-1"
+              >
+                Iniciar Novo Lote
               </Button>
               <Button
                 variant="outline"
@@ -341,147 +312,199 @@ export function FormularioMedicaoPecas({
       </div>
     );
   }
-
+  const lotesAtivos = lotesDisponiveis.filter(
+    (lote) => lote.status === "EM_ANDAMENTO" || lote.status === "EM_ANALISE"
+  );
+  const lotesParaSelect = Array.from(new Set(lotesAtivos.map((l) => l.id))).map(
+    (id) => lotesAtivos.find((l) => l.id === id)!
+  );
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-foreground mb-2">
-          Nova Medição de Peça
+          Registro de Medições de Lote
         </h1>
         <p className="text-muted-foreground">
-          Registre as medições de uma nova peça no sistema
+          Preencha as medições da amostra **{pecaAtual}** de **{pecasNoLote}**
         </p>
       </div>
-
       <div className="space-y-6">
-        {/* Seleção do Tipo de Peça */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Ruler className="h-5 w-5" />
-              Tipo de Peça
+              1. Selecione o Lote
             </CardTitle>
             <CardDescription>
-              Selecione o tipo de peça que será medida
+              Selecione o Lote de produção a ser inspecionado.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Select
-              value={tipoPecaSelecionada}
-              onValueChange={setTipoPecaSelecionada}
+              value={loteSelecionadoId ? String(loteSelecionadoId) : ""}
+              onValueChange={(value) =>
+                setLoteSelecionadoId(value ? Number(value) : null)
+              }
+              disabled={medicoesAcumuladas.length > 0 || carregandoLotes}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Selecione o tipo de peça..." />
+                <SelectValue
+                  placeholder={
+                    carregandoLotes
+                      ? "Carregando Lotes Disponíveis..."
+                      : "Selecione o Lote para medição..."
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
-                {tiposPecas.map((tipo) => (
-                  <SelectItem key={tipo.id} value={tipo.id}>
-                    {tipo.nome}
+                {lotesParaSelect.length > 0 ? (
+                  <SelectGroup>
+                    <SelectLabel>
+                      Lotes Ativos (Em Andamento/Análise)
+                    </SelectLabel>
+                    {lotesParaSelect.map((lote) => (
+                      <SelectItem key={lote.id} value={String(lote.id)}>
+                        {lote.codigoLote} - {lote.descricao} (
+                        {lote.status.replace("_", " ")})
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : (
+                  <SelectItem value="none" disabled>
+                    Nenhum lote ativo disponível.
                   </SelectItem>
-                ))}
+                )}
               </SelectContent>
             </Select>
-            {erros.geral && (
+            {tipoPeca && (
+              <Alert className="mt-4 border-l-4 border-l-blue-500">
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Lote Selecionado: **{tipoPeca.nome}**. Amostragem Necessária:
+                  **{pecasNoLote}** peças.
+                </AlertDescription>
+              </Alert>
+            )}
+            {erros.critico && (
               <Alert variant="destructive" className="mt-3">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{erros.geral}</AlertDescription>
+                <AlertDescription>**{erros.critico}**</AlertDescription>
               </Alert>
             )}
           </CardContent>
         </Card>
 
-        {/* Formulário de Medições */}
-        {tipoPeca && (
+        {tipoPeca && !modo && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gauge className="h-5 w-5" />
+                2. Escolha o Modo de Preenchimento
+              </CardTitle>
+              <CardDescription>
+                Você prefere medir o lote amostrado peça por peça ou cota por
+                cota?
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex gap-4">
+              <Button
+                onClick={() => setModo("peca-a-peca")}
+                className="flex-1 h-20 flex-col"
+                variant="outline"
+              >
+                **Peça-a-Peça**
+                <span className="text-xs font-normal">
+                  (Todos os campos de uma amostra de cada vez)
+                </span>
+              </Button>
+              <Button
+                onClick={() => setModo("cota-a-cota")}
+                className="flex-1 h-20 flex-col"
+                variant="outline"
+              >
+                **Cota-a-Cota**
+                <span className="text-xs font-normal">
+                  (Uma dimensão de todas as amostras de cada vez)
+                </span>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {tipoPeca && modo && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="h-5 w-5" />
-                Medições - {tipoPeca.nome}
+                {modo === "peca-a-peca"
+                  ? `Medição da AMOSTRA ${pecaAtual} de ${pecasNoLote}`
+                  : `Medição da COTA: ${
+                      cotaAtual?.label || "Carregando..."
+                    } (Amostra ${pecaAtual} de ${pecasNoLote})`}
               </CardTitle>
               <CardDescription>
-                Insira as medições para cada dimensão da peça
+                Registre os valores medidos para esta amostra.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Especificações da Peça */}
-              {Object.keys(tipoPeca.especificacoes).length > 0 && (
-                <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg">
-                  <h4 className="font-medium mb-2 flex items-center gap-2">
-                    <Info className="h-4 w-4" />
-                    Especificações Técnicas
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                    {Object.entries(tipoPeca.especificacoes).map(
-                      ([campo, spec]) => (
-                        <div key={campo} className="flex justify-between">
-                          <span className="capitalize">
-                            {campo.replace(/([A-Z])/g, " $1").toLowerCase()}:
-                          </span>
-                          <span className="font-medium">
-                            {spec.min}mm - {spec.max}mm (±{spec.tolerancia}mm)
-                          </span>
-                        </div>
-                      )
-                    )}
-                  </div>
-                </div>
-              )}
+              <Alert
+                className={`border-l-4 ${
+                  isConnected ? "border-l-green-500" : "border-l-red-500"
+                }`}
+              >
+                {isConnected ? (
+                  <Plug className="h-4 w-4" />
+                ) : (
+                  <Unplug className="h-4 w-4" />
+                )}
+                <AlertTitle>
+                  {isConnected
+                    ? "Conectado via Bluetooth"
+                    : "Bluetooth Desconectado"}
+                </AlertTitle>
+                <AlertDescription>
+                  {status}
+                  {deviceName && isConnected && (
+                    <span className="ml-2 font-semibold">({deviceName})</span>
+                  )}
+                </AlertDescription>
+              </Alert>
 
-              {/* Campos de Medição */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {tipoPeca.campos.map((campo) => {
-                  const valor = valores[campo.nome] || "";
-                  const statusSpec = verificarEspecificacao(campo.nome, valor);
+              <Separator />
 
-                  return (
-                    <div key={campo.nome} className="space-y-2">
-                      <Label
-                        htmlFor={campo.nome}
-                        className="flex items-center gap-2"
-                      >
-                        {campo.label}
-                        {campo.obrigatorio && (
-                          <span className="text-red-500">*</span>
-                        )}
-                        {valor && statusSpec === "aprovado" && (
-                          <CheckCircle className="h-4 w-4 text-green-600" />
-                        )}
-                        {valor && statusSpec === "fora-spec" && (
-                          <AlertTriangle className="h-4 w-4 text-red-600" />
-                        )}
-                      </Label>
-                      <Input
-                        id={campo.nome}
-                        type={campo.tipo}
-                        min={campo.min}
-                        max={campo.max}
-                        step={campo.step}
-                        value={valor}
-                        onChange={(e) =>
-                          atualizarValor(campo.nome, e.target.value)
-                        }
-                        placeholder={`Digite ${campo.label.toLowerCase()}`}
-                        className={erros[campo.nome] ? "border-red-500" : ""}
-                      />
-                      {erros[campo.nome] && (
-                        <p className="text-sm text-red-600">
-                          {erros[campo.nome]}
-                        </p>
-                      )}
-                      {valor && statusSpec === "fora-spec" && (
-                        <p className="text-sm text-red-600">
-                          Valor fora da especificação técnica
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="flex justify-between text-sm text-muted-foreground">
+                {modo === "peca-a-peca" ? (
+                  <span>
+                    Progresso do Lote: **{medicoesAcumuladas.length}** /{" "}
+                    {pecasNoLote} amostras preenchidas.
+                  </span>
+                ) : (
+                  <span>
+                    **Progresso da Cota**: {pecaAtual - 1} / {pecasNoLote}{" "}
+                    amostras desta cota concluídas.
+                  </span>
+                )}
+                <span>Operador: **{usuarioNome}**</span>
               </div>
 
               <Separator />
 
-              {/* Observações */}
+              {modo === "peca-a-peca" && tipoPeca?.campos && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {tipoPeca.campos.map((campo) => (
+                    <CampoMedicaoAutomatica key={campo.nome} campo={campo} />
+                  ))}
+                </div>
+              )}
+
+              {modo === "cota-a-cota" && cotaAtual && (
+                <div className="max-w-md">
+                  <CampoMedicaoAutomatica campo={cotaAtual} />
+                </div>
+              )}
+
+              <Separator />
+
               <div className="space-y-2">
                 <Label htmlFor="observacoes">Observações</Label>
                 <Textarea
@@ -492,50 +515,15 @@ export function FormularioMedicaoPecas({
                   rows={3}
                 />
               </div>
-
-              {/* Status da Medição */}
-              {Object.keys(valores).length > 0 && (
-                <div className="bg-muted p-4 rounded-lg">
-                  <h4 className="font-medium mb-2">Status da Medição:</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {tipoPeca.campos.map((campo) => {
-                      const valor = valores[campo.nome];
-                      if (!valor) return null;
-
-                      const status = verificarEspecificacao(campo.nome, valor);
-                      return (
-                        <Badge
-                          key={campo.nome}
-                          variant={
-                            status === "aprovado"
-                              ? "default"
-                              : status === "fora-spec"
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          {campo.label}:{" "}
-                          {status === "aprovado"
-                            ? "OK"
-                            : status === "fora-spec"
-                            ? "Fora de Spec"
-                            : "Pendente"}
-                        </Badge>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         )}
 
-        {/* Botões de Ação */}
-        {tipoPeca && (
-          <div className="flex gap-3">
+        {tipoPeca && modo && (
+          <div className="flex gap-3 flex-wrap">
             <Button
               onClick={salvarMedicao}
-              disabled={salvando}
+              disabled={salvando || !podeMostrarInputs || existeErroCritico()}
               className="flex-1 sm:flex-none"
             >
               {salvando ? (
@@ -546,23 +534,35 @@ export function FormularioMedicaoPecas({
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Salvar Medição
+                  {getSubmitButtonText()}
                 </>
               )}
             </Button>
+
+            <Button
+              variant={isConnected ? "destructive" : "default"}
+              onClick={isConnected ? disconnect : connect}
+              className="flex-1 sm:flex-none"
+            >
+              <Bluetooth className="h-4 w-4 mr-2" />
+              {isConnected ? "Desconectar BT" : "Conectar Bluetooth"}
+            </Button>
+
             <Button
               variant="outline"
-              onClick={resetarFormulario}
+              onClick={recomecarMedicao}
               className="flex-1 sm:flex-none bg-transparent"
             >
               <RotateCcw className="h-4 w-4 mr-2" />
-              Limpar
+              Recomeçar Lote
             </Button>
+
             {onVoltar && (
               <Button
                 variant="ghost"
-                onClick={onVoltar}
+                onClick={cancelarMedicao}
                 className="flex-1 sm:flex-none"
+                disabled={salvando}
               >
                 Cancelar
               </Button>

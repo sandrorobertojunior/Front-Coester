@@ -1,16 +1,21 @@
+// LayoutPrincipal.tsx (VERSÃO FINAL E ESTÁVEL)
 "use client";
 
 import type React from "react";
+import { useState, useCallback } from "react"; // ✅ useCallback adicionado
 
-import { useState } from "react";
+// --- Importações de Autenticação e Layout ---
 import { useAutenticacao } from "@/contextos/contexto-autenticacao";
 import { FormularioLogin } from "./formulario-login";
 import { Sidebar } from "./sidebar";
 import { DashboardUsuario } from "./dashboard-usuario";
 import { DashboardAdministrador } from "./dashboard-administrador";
-import { FormularioMedicaoPecas } from "./formulario-medicao-pecas";
-import { GerenciamentoTiposPecas } from "./gerenciamento-tipos-pecas";
+import { GerenciamentoLotesEPecas } from "./gerenciamento-tipos-pecas";
 import { Loader2 } from "lucide-react";
+
+// --- Importações do Formulário de Medição REAL ---
+import { useFormularioMedicao } from "@/hooks/useFormularioMedicao";
+import { FormularioMedicaoPecas } from "./formulario-medicao-pecas";
 
 interface LayoutPrincipalProps {
   children?: React.ReactNode;
@@ -22,6 +27,20 @@ export function LayoutPrincipal({ children }: LayoutPrincipalProps) {
 
   // Determina se é administrador
   const ehAdmin = usuario?.tipo === "administrador";
+
+  // Variável para o nome do usuário (usando o nome real do contexto de autenticação)
+  const usuarioNome = usuario?.nome || "Operador Desconhecido";
+
+  // 🛑 CORREÇÃO FINAL: Estabiliza a função de retorno (onVoltar) para ser consumida pelo hook.
+  const onVoltarMedicao = useCallback(
+    () => setPaginaAtiva("dashboard"),
+    [setPaginaAtiva]
+  );
+
+  // ** 1. CHAMADA DO HOOK REAL DA API **
+  const formularioMedicaoProps = useFormularioMedicao(
+    onVoltarMedicao // Passa a função estabilizada
+  );
 
   // Mostra loading enquanto verifica autenticação
   if (carregando) {
@@ -45,17 +64,17 @@ export function LayoutPrincipal({ children }: LayoutPrincipalProps) {
     switch (paginaAtiva) {
       case "dashboard":
         return ehAdmin ? <DashboardAdministrador /> : <DashboardUsuario />;
+
       case "nova-medicao":
-        return (
-          <FormularioMedicaoPecas
-            onVoltar={() => setPaginaAtiva("dashboard")}
-          />
-        );
+        // Conexão com o Formulário de Medição
+        return <FormularioMedicaoPecas {...formularioMedicaoProps} />;
+
       case "medicoes":
         return ehAdmin ? <DashboardAdministrador /> : <DashboardUsuario />;
+
       case "tipos-pecas":
         return ehAdmin ? (
-          <GerenciamentoTiposPecas />
+          <GerenciamentoLotesEPecas />
         ) : (
           <div className="p-6">
             <h1 className="text-3xl font-bold mb-4">Acesso Negado</h1>

@@ -1,6 +1,5 @@
 "use client";
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -29,281 +28,305 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Ruler,
   Plus,
   Search,
   Filter,
-  TrendingUp,
-  TrendingDown,
   Clock,
   CheckCircle,
-  XCircle,
   AlertTriangle,
-  Calendar,
   Download,
 } from "lucide-react";
 import { useAutenticacao } from "@/contextos/contexto-autenticacao";
+import {
+  CriarLoteRequestData,
+  DashboardAPI,
+  LoteResumidoAPI,
+  TipoPecaAPI,
+  useControleQualidadeApi,
+} from "@/contextos/api/controlequalidade";
 
-// Dados simulados para demonstração
-const medicoesMock = [
-  {
-    id: "001",
-    tipoPeca: "Eixo de Transmissão",
-    dimensoes: { comprimento: 150.2, diametro: 25.1, tolerancia: 0.1 },
-    status: "aprovada",
-    operador: "João Silva",
-    dataHora: "2024-01-15 14:30",
-    observacoes: "Peça dentro das especificações",
-  },
-  {
-    id: "002",
-    tipoPeca: "Engrenagem",
-    dimensoes: { diametro: 80.5, espessura: 12.0, tolerancia: 0.05 },
-    status: "reprovada",
-    operador: "João Silva",
-    dataHora: "2024-01-15 13:15",
-    observacoes: "Diâmetro fora da tolerância",
-  },
-  {
-    id: "003",
-    tipoPeca: "Parafuso M8",
-    dimensoes: { comprimento: 40.0, diametro: 8.0, tolerancia: 0.02 },
-    status: "aprovada",
-    operador: "João Silva",
-    dataHora: "2024-01-15 12:45",
-    observacoes: "Conforme especificação",
-  },
-  {
-    id: "004",
-    tipoPeca: "Bucha",
-    dimensoes: {
-      diametroInterno: 15.0,
-      diametroExterno: 25.0,
-      tolerancia: 0.03,
-    },
-    status: "revisao",
-    operador: "João Silva",
-    dataHora: "2024-01-15 11:20",
-    observacoes: "Necessita verificação adicional",
-  },
-];
-
-const estatisticasMock = {
-  totalMedicoes: 248,
-  medicoesHoje: 12,
-  taxaAprovacao: 95.2,
-  tempoMedio: 3.2,
-  tendenciaSemanal: 8.5,
-  metaMensal: 300,
-  progressoMeta: 82.7,
+const DADOS_INICIAIS: DashboardAPI = {
+  totalLotes: 0,
+  lotesEmAndamento: 0,
+  lotesConcluidos: 0,
+  taxaAprovacaoGeral: 0,
+  tempoMedioMedicaoMinutos: 0,
+  lotesRecentes: [],
 };
-
-interface StatusBadgeProps {
-  status: string;
-}
-
-function StatusBadge({ status }: StatusBadgeProps) {
-  const configs = {
-    aprovada: {
-      label: "Aprovada",
-      variant: "default" as const,
-      icon: CheckCircle,
-      color: "text-green-600",
-    },
-    reprovada: {
-      label: "Reprovada",
-      variant: "destructive" as const,
-      icon: XCircle,
-      color: "text-red-600",
-    },
-    revisao: {
-      label: "Em Revisão",
-      variant: "secondary" as const,
-      icon: AlertTriangle,
-      color: "text-yellow-600",
-    },
-  };
-
-  const config = configs[status as keyof typeof configs] || configs.revisao;
-  const Icon = config.icon;
-
-  return (
-    <Badge variant={config.variant} className="flex items-center gap-1">
-      <Icon className="h-3 w-3" />
-      {config.label}
-    </Badge>
-  );
-}
 
 export function DashboardUsuario() {
   const { usuario } = useAutenticacao();
+  const api = useControleQualidadeApi();
+  const [dashboardData, setDashboardData] = useState<DashboardAPI | null>(null);
+  const [lotesDoUsuario, setLotesDoUsuario] = useState<LoteResumidoAPI[]>([]);
+  const [tiposPeca, setTiposPeca] = useState<TipoPecaAPI[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [abaAtiva, setAbaAtiva] = useState("visao-geral");
+  const [dialogLoteAberto, setDialogLoteAberto] = useState(false);
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [termoBusca, setTermoBusca] = useState("");
-  const [abaAtiva, setAbaAtiva] = useState("visao-geral");
 
-  // Filtra medições baseado nos filtros aplicados
-  const medicoesFiltradas = medicoesMock.filter((medicao) => {
-    const matchStatus =
-      filtroStatus === "todos" || medicao.status === filtroStatus;
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [dashData, lotes, tipos] = await Promise.all([
+          api.obterDashboard(),
+          api.listarLotesDoUsuario(),
+          api.listarTiposPeca(),
+        ]);
+        setDashboardData(dashData);
+        setLotesDoUsuario(lotes);
+        setTiposPeca(tipos);
+      } catch (err: any) {
+        const axiosStatus = err.response?.status;
+        let errorMessage = "Erro ao conectar com o servidor.";
+        if (axiosStatus === 403) {
+          errorMessage =
+            "Acesso negado (403). Verifique sua autenticação Basic.";
+        } else if (err.message.includes("403")) {
+          errorMessage = "Erro ao carregar dados. (403 Forbidden).";
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (usuario) {
+      fetchData();
+    }
+  }, [usuario]);
+
+  const handleCriarLote = async (dadosLote: {
+    tipoPecaId: number;
+    quantidade: number;
+    descricao: string;
+    quantidadeAmostras: number;
+  }) => {
+    setLoading(true);
+    try {
+      const requestData: CriarLoteRequestData = {
+        descricao: dadosLote.descricao,
+        tipoPecaId: dadosLote.tipoPecaId,
+        quantidadePecas: dadosLote.quantidade,
+        quantidadeAmostrasDesejada: dadosLote.quantidadeAmostras,
+      };
+      const novoLote = await api.criarLote(requestData);
+      const loteParaOEstado: LoteResumidoAPI = {
+        id: novoLote.id,
+        codigoLote: novoLote.codigoLote,
+        descricao: novoLote.descricao,
+        tipoPecaNome: novoLote.tipoPeca.nome,
+        quantidadePecas: novoLote.quantidadePecas,
+        quantidadeAmostras: novoLote.quantidadeAmostras,
+        taxaAprovacao: novoLote.taxaAprovacao,
+        status: novoLote.status,
+        dataCriacao: novoLote.dataCriacao,
+      };
+      setLotesDoUsuario((prevLotes) => [loteParaOEstado, ...prevLotes]);
+      setDialogLoteAberto(false);
+    } catch (err: any) {
+      console.error("Erro ao criar lote:", err);
+      const errorMessage = (err as Error)?.message || "Erro ao criar lote.";
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const lotesFiltrados = lotesDoUsuario.filter((lote) => {
+    let matchStatus = true;
+    if (filtroStatus !== "todos") {
+      if (filtroStatus === "CONCLUIDO") {
+        matchStatus = lote.status === "APROVADO" || lote.status === "REPROVADO";
+      } else {
+        matchStatus = lote.status === filtroStatus;
+      }
+    }
     const matchBusca =
-      medicao.tipoPeca.toLowerCase().includes(termoBusca.toLowerCase()) ||
-      medicao.id.includes(termoBusca);
+      lote.tipoPecaNome.toLowerCase().includes(termoBusca.toLowerCase()) ||
+      lote.codigoLote.toLowerCase().includes(termoBusca.toLowerCase());
     return matchStatus && matchBusca;
   });
 
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header do Dashboard */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">
-            Dashboard do Usuário
-          </h1>
-          <p className="text-muted-foreground">
-            Acompanhe suas medições e estatísticas, {usuario?.nome}
-          </p>
-        </div>
-        <Button className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Nova Medição
+  if (loading && lotesDoUsuario.length === 0 && !dashboardData && !error) {
+    return <div className="p-6">Carregando dados do Dashboard e Lotes...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-red-600 space-y-4">
+        <h2 className="text-xl font-bold">Erro Fatal de Carregamento</h2>
+        <p>
+          Ocorreu um erro ao carregar os dados iniciais:
+          <strong>{error}</strong>
+        </p>
+        <p className="text-sm text-yellow-700">
+          **Ação Necessária:** O erro mais comum aqui é o
+          <strong>403 Forbidden</strong>. Se você usa Login Basic, verifique se
+          o seu cliente Axios está enviando o cabeçalho
+          <code>Authorization: Basic &lt;token&gt;</code>
+          corretamente após o login.
+        </p>
+        <Button onClick={() => setError(null)} variant="outline">
+          Tentar Novamente
         </Button>
       </div>
+    );
+  }
 
+  const stats = dashboardData || DADOS_INICIAIS;
+
+  return (
+    <div className="p-6 space-y-6">
+      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight">
+            Dashboard de Qualidade
+          </h1>
+          <p className="text-muted-foreground">
+            Bem-vindo(a), {usuario?.nome || "Usuário"}! Aqui estão seus dados de
+            controle de qualidade.
+          </p>
+        </div>
+        <Button
+          className="mt-4 sm:mt-0"
+          onClick={() => setDialogLoteAberto(true)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Lote de Medição
+        </Button>
+      </header>
       <Tabs value={abaAtiva} onValueChange={setAbaAtiva} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="visao-geral">Visão Geral</TabsTrigger>
-          <TabsTrigger value="medicoes">Minhas Medições</TabsTrigger>
+          <TabsTrigger value="medicoes">Meus Lotes</TabsTrigger>
           <TabsTrigger value="estatisticas">Estatísticas</TabsTrigger>
         </TabsList>
-
-        {/* Aba: Visão Geral */}
         <TabsContent value="visao-geral" className="space-y-6">
-          {/* Cards de Estatísticas Principais */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Medições Hoje
+                  Lotes Totais
                 </CardTitle>
                 <Ruler className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
-                  {estatisticasMock.medicoesHoje}
-                </div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 text-green-600" />
-                  +2 desde ontem
+                <div className="text-2xl font-bold">{stats.totalLotes}</div>
+                <p className="text-xs text-muted-foreground">
+                  Lotes no seu controle
                 </p>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Total do Mês
+                  Lotes Em Andamento
                 </CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <AlertTriangle className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasMock.totalMedicoes}
+                  {stats.lotesEmAndamento}
                 </div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 text-green-600" />+
-                  {estatisticasMock.tendenciaSemanal}% esta semana
+                <p className="text-xs text-muted-foreground">
+                  Aguardando medições
                 </p>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Taxa de Aprovação
+                  Taxa de Aprovação Geral
                 </CardTitle>
                 <CheckCircle className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasMock.taxaAprovacao}%
+                  {stats.taxaAprovacaoGeral.toFixed(1)}%
                 </div>
-                <p className="text-xs text-muted-foreground">Meta: 95%</p>
+                <p className="text-xs text-muted-foreground">
+                  Média de todas as peças
+                </p>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Tempo Médio
+                  Tempo Médio por Peça
                 </CardTitle>
                 <Clock className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {estatisticasMock.tempoMedio}min
+                  {stats.tempoMedioMedicaoMinutos.toFixed(1)}
+                  min
                 </div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <TrendingDown className="h-3 w-3 text-green-600" />
-                  -0.3min desde semana passada
-                </p>
+                <p className="text-xs text-muted-foreground">Por peça medida</p>
               </CardContent>
             </Card>
           </div>
-
-          {/* Progresso da Meta Mensal */}
           <Card>
             <CardHeader>
-              <CardTitle>Meta Mensal</CardTitle>
+              <CardTitle>Lotes Recentes</CardTitle>
               <CardDescription>
-                Progresso em relação à meta de {estatisticasMock.metaMensal}{" "}
-                medições
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>{estatisticasMock.totalMedicoes} medições</span>
-                  <span>{estatisticasMock.progressoMeta}% da meta</span>
-                </div>
-                <Progress
-                  value={estatisticasMock.progressoMeta}
-                  className="h-2"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Faltam{" "}
-                  {estatisticasMock.metaMensal - estatisticasMock.totalMedicoes}{" "}
-                  medições para atingir a meta
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Medições Recentes */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Medições Recentes</CardTitle>
-              <CardDescription>
-                Suas últimas 4 medições registradas
+                Seus últimos lotes criados ou atualizados
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {medicoesMock.slice(0, 4).map((medicao) => (
+                {stats.lotesRecentes.slice(0, 4).map((lote) => (
                   <div
-                    key={medicao.id}
+                    key={lote.id}
                     className="flex items-center justify-between p-3 border rounded-lg"
                   >
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium">#{medicao.id}</p>
-                        <StatusBadge status={medicao.status} />
+                        <p className="font-medium">#{lote.codigoLote}</p>
+                        <Badge
+                          variant={
+                            lote.status === "CONCLUIDO"
+                              ? "default"
+                              : "secondary"
+                          }
+                          className="flex items-center gap-1 uppercase"
+                        >
+                          {lote.status.replace("_", " ")}
+                        </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {medicao.tipoPeca}
+                        Tipo: {lote.tipoPecaNome}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {medicao.dataHora}
+                    </div>
+                    <div className="w-1/3">
+                      <p className="text-xs text-muted-foreground mb-1">
+                        Amostras:
+                        {lote.quantidadeAmostras}
                       </p>
+                      <Progress
+                        value={
+                          lote.quantidadeAmostras > 0
+                            ? (lote.quantidadeAmostras /
+                                lote.quantidadeAmostras) *
+                              100
+                            : 0
+                        }
+                        className="h-2"
+                      />
                     </div>
                   </div>
                 ))}
@@ -311,25 +334,18 @@ export function DashboardUsuario() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* Aba: Minhas Medições */}
         <TabsContent value="medicoes" className="space-y-6">
-          {/* Filtros e Busca */}
           <Card>
-            <CardHeader>
-              <CardTitle>Filtros</CardTitle>
-              <CardDescription>Filtre e busque suas medições</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1">
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div className="flex-1 w-full">
                   <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Buscar por tipo de peça ou ID..."
+                      placeholder="Buscar por código do lote ou tipo de peça..."
+                      className="w-full pl-10"
                       value={termoBusca}
                       onChange={(e) => setTermoBusca(e.target.value)}
-                      className="pl-10"
                     />
                   </div>
                 </div>
@@ -340,69 +356,72 @@ export function DashboardUsuario() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="todos">Todos os Status</SelectItem>
-                    <SelectItem value="aprovada">Aprovadas</SelectItem>
-                    <SelectItem value="reprovada">Reprovadas</SelectItem>
-                    <SelectItem value="revisao">Em Revisão</SelectItem>
+                    <SelectItem value="EM_ANDAMENTO">Em Andamento</SelectItem>
+                    <SelectItem value="EM_ANALISE">Em Análise</SelectItem>
+                    <SelectItem value="REPROVADO">Reprovado</SelectItem>
+                    <SelectItem value="APROVADO">Aprovado</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button
-                  variant="outline"
-                  className="flex items-center gap-2 bg-transparent"
-                >
-                  <Download className="h-4 w-4" />
-                  Exportar
+                <Button variant="outline" className="w-full sm:w-auto">
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar CSV
                 </Button>
               </div>
             </CardContent>
           </Card>
-
-          {/* Tabela de Medições */}
           <Card>
             <CardHeader>
-              <CardTitle>Lista de Medições</CardTitle>
+              <CardTitle>Meus Lotes de Medição</CardTitle>
               <CardDescription>
-                {medicoesFiltradas.length} medições encontradas
+                {lotesFiltrados.length} lotes encontrados
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    <TableHead>Cód. Lote</TableHead>
                     <TableHead>Tipo de Peça</TableHead>
-                    <TableHead>Dimensões</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Data/Hora</TableHead>
-                    <TableHead>Observações</TableHead>
+                    <TableHead>Amostras</TableHead>
+                    <TableHead>Qtd. Total</TableHead>
+                    <TableHead>Aprovação</TableHead>
+                    <TableHead>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {medicoesFiltradas.map((medicao) => (
-                    <TableRow key={medicao.id}>
+                  {lotesFiltrados.map((lote) => (
+                    <TableRow key={lote.id}>
                       <TableCell className="font-medium">
-                        #{medicao.id}
+                        #{lote.codigoLote}
                       </TableCell>
-                      <TableCell>{medicao.tipoPeca}</TableCell>
+                      <TableCell>{lote.tipoPecaNome}</TableCell>
                       <TableCell>
-                        <div className="text-sm">
-                          {Object.entries(medicao.dimensoes).map(
-                            ([key, value]) => (
-                              <div key={key}>
-                                {key}: {value}mm
-                              </div>
-                            )
-                          )}
-                        </div>
+                        <Badge
+                          variant={
+                            lote.status === "APROVADO"
+                              ? "default"
+                              : lote.status === "REPROVADO"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                          className="uppercase"
+                        >
+                          {lote.status.replace("_", " ")}
+                        </Badge>
                       </TableCell>
-                      <TableCell>
-                        <StatusBadge status={medicao.status} />
+                      <TableCell>{lote.quantidadeAmostras}</TableCell>
+                      <TableCell>{lote.quantidadePecas}</TableCell>
+                      <TableCell
+                        className={`font-bold ${
+                          lote.taxaAprovacao >= 90
+                            ? "text-green-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {lote.taxaAprovacao.toFixed(1)}%
                       </TableCell>
-                      <TableCell className="text-sm">
-                        {medicao.dataHora}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-48 truncate">
-                        {medicao.observacoes}
-                      </TableCell>
+                      <TableCell>{/* Ações aqui */}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -410,105 +429,232 @@ export function DashboardUsuario() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* Aba: Estatísticas */}
         <TabsContent value="estatisticas" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Distribuição por Status */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Distribuição por Status</CardTitle>
-                <CardDescription>Últimos 30 dias</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                      <span className="text-sm">Aprovadas</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">236</span>
-                      <span className="text-xs text-muted-foreground">
-                        (95.2%)
-                      </span>
-                    </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Estatísticas Detalhadas</CardTitle>
+              <CardDescription>
+                Análise de desempenho ao longo do tempo (Mock data, conectar ao
+                backend)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="p-4">
+                  <div className="font-semibold mb-2">
+                    Taxa de Aprovação Mensal
                   </div>
-                  <Progress value={95.2} className="h-2" />
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <XCircle className="h-4 w-4 text-red-600" />
-                      <span className="text-sm">Reprovadas</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">8</span>
-                      <span className="text-xs text-muted-foreground">
-                        (3.2%)
-                      </span>
-                    </div>
+                  <div className="h-32 flex items-center justify-center text-muted-foreground">
+                    Gráfico aqui...
                   </div>
-                  <Progress value={3.2} className="h-2" />
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                      <span className="text-sm">Em Revisão</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">4</span>
-                      <span className="text-xs text-muted-foreground">
-                        (1.6%)
-                      </span>
-                    </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="font-semibold mb-2">
+                    Tempo Médio de Medição
                   </div>
-                  <Progress value={1.6} className="h-2" />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tipos de Peças Mais Medidas */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Tipos Mais Medidos</CardTitle>
-                <CardDescription>Top 5 tipos de peças</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    {
-                      tipo: "Eixo de Transmissão",
-                      quantidade: 45,
-                      porcentagem: 18.1,
-                    },
-                    { tipo: "Engrenagem", quantidade: 38, porcentagem: 15.3 },
-                    { tipo: "Parafuso M8", quantidade: 32, porcentagem: 12.9 },
-                    { tipo: "Bucha", quantidade: 28, porcentagem: 11.3 },
-                    { tipo: "Porca M8", quantidade: 24, porcentagem: 9.7 },
-                  ].map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-medium">{item.tipo}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.quantidade} medições
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium">
-                          {item.porcentagem}%
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                  <div className="h-32 flex items-center justify-center text-muted-foreground">
+                    Gráfico aqui...
+                  </div>
+                </Card>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
+      <DialogCriarLote
+        open={dialogLoteAberto}
+        setOpen={setDialogLoteAberto}
+        tiposPecas={tiposPeca.map((t) => ({
+          id: t.id,
+          nome: t.nome,
+          descricao: t.descricao,
+        }))}
+        onCriarLote={handleCriarLote}
+      />
     </div>
+  );
+}
+
+interface DialogCriarLoteProps {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  tiposPecas: { id: number; nome: string; descricao: string }[];
+  onCriarLote: (dados: {
+    tipoPecaId: number;
+    quantidade: number;
+    descricao: string;
+    quantidadeAmostras: number;
+  }) => Promise<void>;
+}
+
+function DialogCriarLote({
+  open,
+  setOpen,
+  tiposPecas,
+  onCriarLote,
+}: DialogCriarLoteProps) {
+  // Estados iniciais em 0 para garantir que a validação falhe no início
+  const [tipoPecaId, setTipoPecaId] = useState<string | number>("");
+  const [quantidade, setQuantidade] = useState(0);
+  const [descricao, setDescricao] = useState("");
+  const [quantidadeAmostras, setquantidadeAmostras] = useState<number>(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const tipoPecaSelecionado = tiposPecas.find(
+    (t) => t.id === Number(tipoPecaId)
+  );
+
+  const handleSubmit = async () => {
+    // Validação de BLINDAGEM: Se qualquer obrigatório for 0 ou "" (Não Válido)
+    if (!tipoPecaId || quantidade <= 0 || quantidadeAmostras <= 0) {
+      alert(
+        "Por favor, preencha todos os campos obrigatórios com valores válidos (Tipo de Peça, Quantidade Total e Amostras Desejadas)."
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const descricaoFinal =
+        descricao.trim() || `Lote de ${tipoPecaSelecionado?.nome || "Peças"}`;
+
+      await onCriarLote({
+        tipoPecaId: Number(tipoPecaId),
+        quantidade: quantidade,
+        descricao: descricaoFinal,
+        quantidadeAmostras: quantidadeAmostras,
+      });
+
+      // Reset
+      setTipoPecaId("");
+      setQuantidade(0);
+      setDescricao("");
+      setquantidadeAmostras(0);
+    } catch (error) {
+      console.error("Erro ao submeter criação de lote:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          {/* Título necessário para acessibilidade */}
+          <DialogTitle className="flex items-center gap-2">
+            <Plus className="h-5 w-5" /> Criar Novo Lote de Medição
+          </DialogTitle>
+          <DialogDescription>
+            Informe os detalhes para iniciar o rastreamento de um novo lote de
+            peças.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">
+              Tipo de Peça*
+            </label>
+            <Select value={String(tipoPecaId)} onValueChange={setTipoPecaId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione um Tipo de Peça existente" />
+              </SelectTrigger>
+              <SelectContent>
+                {tiposPecas.map((tipo) => (
+                  <SelectItem key={tipo.id} value={String(tipo.id)}>
+                    {tipo.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="descricao"
+              className="text-sm font-medium leading-none"
+            >
+              Descrição do Lote
+            </label>
+            <Input
+              id="descricao"
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              placeholder={`Ex: Lote de ${
+                tipoPecaSelecionado?.nome || "Peças"
+              } - 1ª remessa`}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="quantidade"
+              className="text-sm font-medium leading-none"
+            >
+              Quantidade Total de Peças no Lote*
+            </label>
+            <Input
+              id="quantidade"
+              type="number"
+              // CORREÇÃO: Exibe "" se o valor for 0 (Para iniciar vazio)
+              value={quantidade === 0 ? "" : quantidade}
+              onChange={(e) =>
+                setQuantidade(
+                  e.target.value === "" ? 0 : Number(e.target.value)
+                )
+              }
+              min={1}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="amostras"
+              className="text-sm font-medium leading-none"
+            >
+              Amostras Desejadas*
+            </label>
+            <Input
+              id="amostras"
+              type="number"
+              // CORREÇÃO: Exibe "" se o valor for 0 (Para iniciar vazio)
+              value={quantidadeAmostras === 0 ? "" : quantidadeAmostras}
+              onChange={(e) =>
+                setquantidadeAmostras(
+                  e.target.value === "" ? 0 : Number(e.target.value)
+                )
+              }
+              placeholder="Informe o número de amostras a medir"
+              min={1}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            // O botão estará desabilitado se os estados forem "" ou 0
+            disabled={
+              !tipoPecaId ||
+              quantidade <= 0 ||
+              quantidadeAmostras <= 0 ||
+              isSubmitting
+            }
+          >
+            {isSubmitting ? (
+              "Criando..."
+            ) : (
+              <>
+                <Plus className="h-4 w-4 mr-2" />
+                Criar Lote
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
