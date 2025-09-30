@@ -43,6 +43,7 @@ import {
   IFormularioMedicaoViewProps,
 } from "@/hooks/formulario-medicao.types";
 import { useConnectarBluetooth } from "@/hooks/useConnectarBluetooth";
+import { set } from "date-fns";
 
 interface LoteDisponivel {
   id: number;
@@ -79,6 +80,7 @@ export function FormularioMedicaoPecas({
   onVoltar,
   recomecarMedicao,
   cancelarMedicao,
+  setClicouSelect,
 }: IFormularioMedicaoViewProps & { lotesDisponiveis: LoteDisponivel[] }) {
   const podeMostrarInputs =
     modo === "peca-a-peca" || (modo === "cota-a-cota" && cotaAtual);
@@ -312,12 +314,20 @@ export function FormularioMedicaoPecas({
       </div>
     );
   }
-  const lotesAtivos = lotesDisponiveis.filter(
-    (lote) => lote.status === "EM_ANDAMENTO" || lote.status === "EM_ANALISE"
-  );
-  const lotesParaSelect = Array.from(new Set(lotesAtivos.map((l) => l.id))).map(
-    (id) => lotesAtivos.find((l) => l.id === id)!
-  );
+  const [lotesAtivos, setLotesAtivos] = useState<LoteDisponivel[]>([]);
+  const [lotesParaSelect, setLotesParaSelect] = useState<LoteDisponivel[]>([]);
+  useEffect(() => {
+    setLotesAtivos(
+      lotesDisponiveis.filter(
+        (lote) => lote.status === "EM_ANDAMENTO" || lote.status === "EM_ANALISE"
+      )
+    );
+    setLotesParaSelect(
+      Array.from(new Set(lotesAtivos.map((l) => l.id))).map(
+        (id) => lotesAtivos.find((l) => l.id === id)!
+      )
+    );
+  }, [lotesDisponiveis]);
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
@@ -347,7 +357,7 @@ export function FormularioMedicaoPecas({
               }
               disabled={medicoesAcumuladas.length > 0 || carregandoLotes}
             >
-              <SelectTrigger>
+              <SelectTrigger onClick={() => setClicouSelect(true)}>
                 <SelectValue
                   placeholder={
                     carregandoLotes

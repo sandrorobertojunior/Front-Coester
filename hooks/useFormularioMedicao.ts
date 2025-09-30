@@ -109,6 +109,8 @@ export function useFormularioMedicao(
   const [lotesDisponiveis, setLotesDisponiveis] = useState<LoteResumidoAPI[]>(
     []
   );
+  const [clicouSelect, setClicouSelect] = useState<Boolean>(false);
+
   const [carregandoLotes, setCarregandoLotes] = useState(false);
   const usuarioNome = "sandro"; // --- PROPRIEDADES DERIVADAS ---
 
@@ -143,6 +145,7 @@ export function useFormularioMedicao(
         // A função listarLotesDoUsuario() foi corrigida para filtrar lotes EM_ANDAMENTO na camada de API
         const response = await api.listarLotesDoUsuario();
         setLotesDisponiveis(response);
+        setClicouSelect(false);
       } catch (err) {
         console.error("ERRO CRÍTICO ao carregar lotes da API:", err);
         setEstado((prev) => ({
@@ -154,7 +157,7 @@ export function useFormularioMedicao(
       }
     };
     carregar();
-  }, [api, estaLogado]);
+  }, [api, estaLogado, clicouSelect]);
 
   // --- HANDLER: SELECIONAR LOTE (Busca Detalhes) ---
 
@@ -666,5 +669,6 @@ export function useFormularioMedicao(
     verificarEspecificacao, // Propriedade do container
 
     onVoltar,
+    setClicouSelect,
   };
 }

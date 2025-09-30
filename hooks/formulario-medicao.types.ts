@@ -115,4 +115,5 @@ export interface IFormularioMedicaoViewProps {
   onVoltar?: () => void;
   recomecarMedicao: () => Promise<void>;
   cancelarMedicao: () => Promise<void>;
+  setClicouSelect: (clicou: boolean) => void;
 }
