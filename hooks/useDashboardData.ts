@@ -3,156 +3,83 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   useControleQualidadeApi,
-  TipoPecaAPI,
-  UsuarioDto, // Importado da sua API de administração
+  UsuarioDto,
+  TipoPecaResponse, // [CORREÇÃO] Usando o tipo de resposta correto
+  DashboardResponse,
 } from "@/contextos/api/controlequalidade"; // AJUSTE O PATH DA SUA API
 
-// --- Tipos de Dados Estáticos ---
-
-const estatisticasEstaticas = {
-  totalUsuarios: 12,
-  usuariosAtivos: 8,
-  totalMedicoes: 1248,
-  medicoesHoje: 47,
-  taxaAprovacaoGeral: 94.8,
-  tempoMedioGeral: 3.4,
-  tendenciaSemanal: 12.3,
-  metaMensal: 1500,
-  progressoMeta: 83.2,
-};
-
-// 1. Definição da interface para os Alertas (Corrige o erro ts(703))
-interface Alerta {
-  id: string;
-  tipo: string;
-  descricao: string;
-  severidade: "alta" | "media" | "baixa";
-  usuario: string;
-  dataHora: string;
-}
-
-// 2. Tipagem explícita para o array de alertas
-const alertasEstaticos: Alerta[] = [
-  {
-    id: "1",
-    tipo: "Taxa de Reprovação Alta",
-    descricao: "Engrenagens com 8.2% de reprovação esta semana",
-    severidade: "alta",
-    usuario: "Pedro Costa",
-    dataHora: "2024-01-15 10:30",
-  },
-];
-
+// --- INTERFACE DE RETORNO DO HOOK ---
+// Descreve tudo que o hook fornecerá para o componente
 interface DashboardData {
-  estatisticas: typeof estatisticasEstaticas;
-  alertas: Alerta[]; // Usando o novo tipo Alerta[]
+  dashboard: DashboardResponse | null;
+  usuarios: UsuarioDto[];
+  tiposPecas: TipoPecaResponse[];
 
-  // NOVOS CAMPOS PARA DADOS REAIS DE USUÁRIOS
-  usuarios: UsuarioDto[]; // Usa o DTO da API de Admin
-  carregandoUsuarios: boolean;
-  erroUsuarios: string | null;
-  recarregarUsuarios: () => void;
-
-  tiposPecas: TipoPecaAPI[];
-  carregandoTiposPecas: boolean;
-  erroTiposPecas: string | null;
-  recarregarTiposPecas: () => void;
+  carregando: boolean; // Um único estado de 'loading' geral
+  erro: string | null; // Um único estado de erro geral
 
   recarregarDashboard: () => void;
 }
 
+// Estado inicial para o dashboard
+const ESTADO_INICIAL_DASHBOARD: DashboardResponse = {
+  totalLotes: 0,
+  lotesEmAndamento: 0,
+  lotesConcluidos: 0,
+  taxaAprovacaoGeral: 0,
+  tempoMedioMedicaoMinutos: 0,
+  lotesRecentes: [],
+};
+
 export function useDashboardData(): DashboardData {
   const api = useControleQualidadeApi();
 
-  // --- ESTADOS PARA TIPOS DE PEÇA ---
-  const [tiposPecas, setTiposPecas] = useState<TipoPecaAPI[]>([]);
-  const [carregandoTiposPecas, setCarregandoTiposPecas] = useState(true);
-  const [erroTiposPecas, setErroTiposPecas] = useState<string | null>(null);
+  // --- ESTADOS PRINCIPAIS DO HOOK ---
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [usuarios, setUsuarios] = useState<UsuarioDto[]>([]);
+  const [tiposPecas, setTiposPecas] = useState<TipoPecaResponse[]>([]);
 
-  // --- ESTADOS PARA USUÁRIOS (API ADMIN) ---
-  const [apiUsuarios, setApiUsuarios] = useState<UsuarioDto[]>([]);
-  const [carregandoUsuarios, setCarregandoUsuarios] = useState(true);
-  const [erroUsuarios, setErroUsuarios] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
 
-  // --------------------------------------------------------
-  // FUNÇÃO PARA CARREGAR TIPOS DE PEÇA
-  // --------------------------------------------------------
-  const carregarTiposPecas = useCallback(async () => {
-    setCarregandoTiposPecas(true);
-    setErroTiposPecas(null);
+  // --- FUNÇÃO PARA CARREGAR TODOS OS DADOS ---
+  const carregarDados = useCallback(async () => {
+    setCarregando(true);
+    setErro(null);
     try {
-      const data = await api.listarTiposPeca();
-      setTiposPecas(data);
-    } catch (error) {
-      console.error("Falha ao carregar tipos de peça:", error);
-      setErroTiposPecas(
-        "Não foi possível carregar os tipos de peça. Verifique a API."
+      // Busca todos os dados em paralelo para mais eficiência
+      const [dadosDashboard, dadosUsuarios, dadosTiposPeca] = await Promise.all(
+        [api.obterDashboard(), api.getAllUsuarios(), api.listarTiposPeca()]
       );
-    } finally {
-      setCarregandoTiposPecas(false);
-    }
-  }, [api]);
 
-  // --------------------------------------------------------
-  // FUNÇÃO PARA CARREGAR USUÁRIOS (ADMIN API)
-  // --------------------------------------------------------
-  const carregarUsuarios = useCallback(async () => {
-    setCarregandoUsuarios(true);
-    setErroUsuarios(null);
-    try {
-      // Chamada do novo endpoint de administração: GET /api/admin/usuarios
-      const data = await api.getAllUsuarios();
-      setApiUsuarios(data);
-    } catch (error) {
-      console.error("Falha ao carregar lista de usuários da Admin API:", error);
-
-      // Captura a mensagem de erro da API (e.g., "Acesso negado. Você não possui...")
-      setErroUsuarios(
+      setDashboard(dadosDashboard);
+      setUsuarios(dadosUsuarios);
+      setTiposPecas(dadosTiposPeca);
+    } catch (error: any) {
+      console.error("Falha ao carregar dados do dashboard:", error);
+      const mensagemErro =
         error instanceof Error
           ? error.message
-          : "Erro desconhecido ao carregar usuários. Verifique sua permissão de Administrador."
-      );
-      setApiUsuarios([]);
+          : "Ocorreu um erro desconhecido.";
+      setErro(mensagemErro);
     } finally {
-      setCarregandoUsuarios(false);
+      setCarregando(false);
     }
   }, [api]);
 
-  // --------------------------------------------------------
-  // FUNÇÃO DE RECARREGAMENTO GERAL
-  // --------------------------------------------------------
-  const recarregarDashboard = useCallback(() => {
-    // Carrega todos os dados necessários
-    carregarTiposPecas();
-    carregarUsuarios(); // <-- Incluído o carregamento dos usuários
-  }, [carregarTiposPecas, carregarUsuarios]);
-
+  // Carrega os dados quando o hook é montado pela primeira vez
   useEffect(() => {
-    // Carrega os dados ao montar o componente
-    recarregarDashboard();
-  }, [recarregarDashboard]);
+    carregarDados();
+  }, [carregarDados]);
 
-  // --------------------------------------------------------
-  // RETORNO DO HOOK
-  // --------------------------------------------------------
+  // --- RETORNO DO HOOK ---
   return {
-    // Dados estáticos
-    estatisticas: estatisticasEstaticas,
-    alertas: alertasEstaticos,
-
-    // Dados reais (API) - Tipos de Peça
+    // Se o dashboard ainda não carregou, retorna o estado inicial para evitar erros de 'null' no componente
+    dashboard: dashboard || ESTADO_INICIAL_DASHBOARD,
+    usuarios,
     tiposPecas,
-    carregandoTiposPecas,
-    erroTiposPecas,
-    recarregarTiposPecas: carregarTiposPecas,
-
-    // Dados reais (API Admin) - Usuários
-    usuarios: apiUsuarios,
-    carregandoUsuarios: carregandoUsuarios,
-    erroUsuarios: erroUsuarios,
-    recarregarUsuarios: carregarUsuarios, // Exposição do handler específico
-
-    // Função de recarregamento geral
-    recarregarDashboard,
+    carregando,
+    erro,
+    recarregarDashboard: carregarDados, // A função de recarregar agora é a mesma que carrega tudo
   };
 }

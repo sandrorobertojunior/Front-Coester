@@ -9,13 +9,14 @@ import { useAutenticacao } from "@/contextos/contexto-autenticacao";
 import { FormularioLogin } from "./formulario-login";
 import { Sidebar } from "./sidebar";
 import { DashboardUsuario } from "./dashboard-usuario";
-import { DashboardAdministrador } from "./dashboard-administrador";
+
 import { GerenciamentoLotesEPecas } from "./gerenciamento-tipos-pecas";
 import { Loader2 } from "lucide-react";
 
 // --- Importações do Formulário de Medição REAL ---
 import { useFormularioMedicao } from "@/hooks/useFormularioMedicao";
 import { FormularioMedicaoPecas } from "./formulario-medicao-pecas";
+import { DashboardAdministrador } from "./dashboard-administrador";
 
 interface LayoutPrincipalProps {
   children?: React.ReactNode;

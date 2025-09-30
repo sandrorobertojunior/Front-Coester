@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -28,14 +29,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
   Ruler,
   Plus,
   Search,
@@ -43,18 +36,20 @@ import {
   Clock,
   CheckCircle,
   AlertTriangle,
-  Download,
 } from "lucide-react";
+
 import { useAutenticacao } from "@/contextos/contexto-autenticacao";
+// [CORREÇÃO] Importando os tipos corretos
 import {
-  CriarLoteRequestData,
-  DashboardAPI,
-  LoteResumidoAPI,
-  TipoPecaAPI,
+  CriarLoteRequest,
+  DashboardResponse,
+  LoteResumidoResponse,
+  TipoPecaResponse,
   useControleQualidadeApi,
 } from "@/contextos/api/controlequalidade";
+import { DialogCriarLote } from "./DialogCriarLote"; // Verifique se o caminho está correto
 
-const DADOS_INICIAIS: DashboardAPI = {
+const DADOS_INICIAIS_DASHBOARD: DashboardResponse = {
   totalLotes: 0,
   lotesEmAndamento: 0,
   lotesConcluidos: 0,
@@ -66,9 +61,19 @@ const DADOS_INICIAIS: DashboardAPI = {
 export function DashboardUsuario() {
   const { usuario } = useAutenticacao();
   const api = useControleQualidadeApi();
-  const [dashboardData, setDashboardData] = useState<DashboardAPI | null>(null);
-  const [lotesDoUsuario, setLotesDoUsuario] = useState<LoteResumidoAPI[]>([]);
-  const [tiposPeca, setTiposPeca] = useState<TipoPecaAPI[]>([]);
+
+  const [dashboardData, setDashboardData] = useState<DashboardResponse>(
+    DADOS_INICIAIS_DASHBOARD
+  );
+  // [CORREÇÃO] Usando o tipo Omit para dados iniciais do lote
+  const [dadosNovoLote] = useState<
+    Partial<Omit<CriarLoteRequest, "codigoLote">>
+  >({});
+
+  const [lotesDoUsuario, setLotesDoUsuario] = useState<LoteResumidoResponse[]>(
+    []
+  );
+  const [tiposPeca, setTiposPeca] = useState<TipoPecaResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [abaAtiva, setAbaAtiva] = useState("visao-geral");
@@ -90,17 +95,7 @@ export function DashboardUsuario() {
         setLotesDoUsuario(lotes);
         setTiposPeca(tipos);
       } catch (err: any) {
-        const axiosStatus = err.response?.status;
-        let errorMessage = "Erro ao conectar com o servidor.";
-        if (axiosStatus === 403) {
-          errorMessage =
-            "Acesso negado (403). Verifique sua autenticação Basic.";
-        } else if (err.message.includes("403")) {
-          errorMessage = "Erro ao carregar dados. (403 Forbidden).";
-        } else if (err.message) {
-          errorMessage = err.message;
-        }
-        setError(errorMessage);
+        setError(err.message || "Erro ao carregar dados.");
       } finally {
         setLoading(false);
       }
@@ -108,87 +103,52 @@ export function DashboardUsuario() {
     if (usuario) {
       fetchData();
     }
-  }, [usuario]);
+  }, [usuario, api]);
 
-  const handleCriarLote = async (dadosLote: {
-    tipoPecaId: number;
-    quantidade: number;
-    descricao: string;
-    quantidadeAmostras: number;
-  }) => {
-    setLoading(true);
+  const handleCriarLote = async (
+    dadosLote: Omit<CriarLoteRequest, "codigoLote">
+  ) => {
     try {
-      const requestData: CriarLoteRequestData = {
-        descricao: dadosLote.descricao,
-        tipoPecaId: dadosLote.tipoPecaId,
-        quantidadePecas: dadosLote.quantidade,
-        quantidadeAmostrasDesejada: dadosLote.quantidadeAmostras,
+      // Gera o código do lote no frontend pouco antes de enviar
+      const payload: CriarLoteRequest = {
+        ...dadosLote,
       };
-      const novoLote = await api.criarLote(requestData);
-      const loteParaOEstado: LoteResumidoAPI = {
-        id: novoLote.id,
-        codigoLote: novoLote.codigoLote,
-        descricao: novoLote.descricao,
-        tipoPecaNome: novoLote.tipoPeca.nome,
-        quantidadePecas: novoLote.quantidadePecas,
-        quantidadeAmostras: novoLote.quantidadeAmostras,
-        taxaAprovacao: novoLote.taxaAprovacao,
-        status: novoLote.status,
-        dataCriacao: novoLote.dataCriacao,
-      };
-      setLotesDoUsuario((prevLotes) => [loteParaOEstado, ...prevLotes]);
-      setDialogLoteAberto(false);
+      console.log(dadosLote);
+      await api.criarLote(payload);
+
+      const [dashData, lotes] = await Promise.all([
+        api.obterDashboard(),
+        api.listarLotesDoUsuario(),
+      ]);
+      setDashboardData(dashData);
+      setLotesDoUsuario(lotes);
     } catch (err: any) {
       console.error("Erro ao criar lote:", err);
-      const errorMessage = (err as Error)?.message || "Erro ao criar lote.";
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
+      alert(err.message || "Não foi possível criar o lote.");
+      throw err;
     }
   };
 
-  const lotesFiltrados = lotesDoUsuario.filter((lote) => {
-    let matchStatus = true;
-    if (filtroStatus !== "todos") {
-      if (filtroStatus === "CONCLUIDO") {
-        matchStatus = lote.status === "APROVADO" || lote.status === "REPROVADO";
-      } else {
-        matchStatus = lote.status === filtroStatus;
-      }
-    }
-    const matchBusca =
-      lote.tipoPecaNome.toLowerCase().includes(termoBusca.toLowerCase()) ||
-      lote.codigoLote.toLowerCase().includes(termoBusca.toLowerCase());
-    return matchStatus && matchBusca;
-  });
+  const lotesFiltrados = useMemo(
+    () =>
+      lotesDoUsuario.filter((lote) => {
+        const matchStatus =
+          filtroStatus === "todos" || lote.status === filtroStatus;
+        const matchBusca =
+          lote.codigoLote.toLowerCase().includes(termoBusca.toLowerCase()) ||
+          lote.tipoPeca.nome.toLowerCase().includes(termoBusca.toLowerCase());
+        return matchStatus && matchBusca;
+      }),
+    [lotesDoUsuario, filtroStatus, termoBusca]
+  );
 
-  if (loading && lotesDoUsuario.length === 0 && !dashboardData && !error) {
-    return <div className="p-6">Carregando dados do Dashboard e Lotes...</div>;
+  if (loading) {
+    return <div className="p-6">Carregando dashboard...</div>;
   }
 
   if (error) {
-    return (
-      <div className="p-6 text-red-600 space-y-4">
-        <h2 className="text-xl font-bold">Erro Fatal de Carregamento</h2>
-        <p>
-          Ocorreu um erro ao carregar os dados iniciais:
-          <strong>{error}</strong>
-        </p>
-        <p className="text-sm text-yellow-700">
-          **Ação Necessária:** O erro mais comum aqui é o
-          <strong>403 Forbidden</strong>. Se você usa Login Basic, verifique se
-          o seu cliente Axios está enviando o cabeçalho
-          <code>Authorization: Basic &lt;token&gt;</code>
-          corretamente após o login.
-        </p>
-        <Button onClick={() => setError(null)} variant="outline">
-          Tentar Novamente
-        </Button>
-      </div>
-    );
+    return <div className="p-6 text-red-600">Erro: {error}</div>;
   }
-
-  const stats = dashboardData || DADOS_INICIAIS;
 
   return (
     <div className="p-6 space-y-6">
@@ -198,23 +158,21 @@ export function DashboardUsuario() {
             Dashboard de Qualidade
           </h1>
           <p className="text-muted-foreground">
-            Bem-vindo(a), {usuario?.nome || "Usuário"}! Aqui estão seus dados de
-            controle de qualidade.
+            {/* [CORREÇÃO] Usando 'username' que existe no DTO */}
+            Bem-vindo(a), {usuario?.nome || "Usuário"}!
           </p>
         </div>
         <Button
           className="mt-4 sm:mt-0"
           onClick={() => setDialogLoteAberto(true)}
         >
-          <Plus className="h-4 w-4 mr-2" />
-          Novo Lote de Medição
+          <Plus className="h-4 w-4 mr-2" /> Novo Lote de Medição
         </Button>
       </header>
       <Tabs value={abaAtiva} onValueChange={setAbaAtiva} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="visao-geral">Visão Geral</TabsTrigger>
-          <TabsTrigger value="medicoes">Meus Lotes</TabsTrigger>
-          <TabsTrigger value="estatisticas">Estatísticas</TabsTrigger>
+          <TabsTrigger value="meus-lotes">Meus Lotes</TabsTrigger>
         </TabsList>
         <TabsContent value="visao-geral" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -226,10 +184,9 @@ export function DashboardUsuario() {
                 <Ruler className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stats.totalLotes}</div>
-                <p className="text-xs text-muted-foreground">
-                  Lotes no seu controle
-                </p>
+                <div className="text-2xl font-bold">
+                  {dashboardData.totalLotes}
+                </div>
               </CardContent>
             </Card>
             <Card>
@@ -241,113 +198,92 @@ export function DashboardUsuario() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.lotesEmAndamento}
+                  {dashboardData.lotesEmAndamento}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Aguardando medições
-                </p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Taxa de Aprovação Geral
+                  Taxa de Aprovação
                 </CardTitle>
                 <CheckCircle className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.taxaAprovacaoGeral.toFixed(1)}%
+                  {dashboardData.taxaAprovacaoGeral.toFixed(1)}%
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Média de todas as peças
-                </p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">
-                  Tempo Médio por Peça
+                  Tempo Médio / Peça
                 </CardTitle>
                 <Clock className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.tempoMedioMedicaoMinutos.toFixed(1)}
-                  min
+                  {dashboardData.tempoMedioMedicaoMinutos.toFixed(1)} min
                 </div>
-                <p className="text-xs text-muted-foreground">Por peça medida</p>
               </CardContent>
             </Card>
           </div>
           <Card>
             <CardHeader>
               <CardTitle>Lotes Recentes</CardTitle>
-              <CardDescription>
-                Seus últimos lotes criados ou atualizados
-              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {stats.lotesRecentes.slice(0, 4).map((lote) => (
-                  <div
-                    key={lote.id}
-                    className="flex items-center justify-between p-3 border rounded-lg"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium">#{lote.codigoLote}</p>
-                        <Badge
-                          variant={
-                            lote.status === "CONCLUIDO"
-                              ? "default"
-                              : "secondary"
-                          }
-                          className="flex items-center gap-1 uppercase"
-                        >
-                          {lote.status.replace("_", " ")}
-                        </Badge>
+                {dashboardData.lotesRecentes.slice(0, 4).map((lote) => {
+                  const amostrasFeitas =
+                    lote.pecasAprovadas + lote.pecasReprovadas;
+                  const progresso =
+                    lote.quantidadeAmostrasDesejada > 0
+                      ? (amostrasFeitas / lote.quantidadeAmostrasDesejada) * 100
+                      : 0;
+                  return (
+                    <div
+                      key={lote.id}
+                      className="flex items-center justify-between p-3 border rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="font-medium">#{lote.codigoLote}</p>
+                          <Badge variant="secondary" className="uppercase">
+                            {lote.status.replace("_", " ")}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Tipo: {lote.tipoPeca.nome}
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        Tipo: {lote.tipoPecaNome}
-                      </p>
+                      <div className="w-1/3">
+                        <p className="text-xs text-muted-foreground mb-1">
+                          Amostras: {amostrasFeitas} de{" "}
+                          {lote.quantidadeAmostrasDesejada}
+                        </p>
+                        <Progress value={progresso} className="h-2" />
+                      </div>
                     </div>
-                    <div className="w-1/3">
-                      <p className="text-xs text-muted-foreground mb-1">
-                        Amostras:
-                        {lote.quantidadeAmostras}
-                      </p>
-                      <Progress
-                        value={
-                          lote.quantidadeAmostras > 0
-                            ? (lote.quantidadeAmostras /
-                                lote.quantidadeAmostras) *
-                              100
-                            : 0
-                        }
-                        className="h-2"
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="medicoes" className="space-y-6">
+        <TabsContent value="meus-lotes" className="space-y-6">
           <Card>
             <CardContent className="p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="flex-1 w-full">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Buscar por código do lote ou tipo de peça..."
-                      className="w-full pl-10"
-                      value={termoBusca}
-                      onChange={(e) => setTermoBusca(e.target.value)}
-                    />
-                  </div>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por código ou tipo de peça..."
+                    className="pl-10"
+                    value={termoBusca}
+                    onChange={(e) => setTermoBusca(e.target.value)}
+                  />
                 </div>
                 <Select value={filtroStatus} onValueChange={setFiltroStatus}>
                   <SelectTrigger className="w-full sm:w-48">
@@ -362,10 +298,6 @@ export function DashboardUsuario() {
                     <SelectItem value="APROVADO">Aprovado</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button variant="outline" className="w-full sm:w-auto">
-                  <Download className="h-4 w-4 mr-2" />
-                  Exportar CSV
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -386,7 +318,6 @@ export function DashboardUsuario() {
                     <TableHead>Amostras</TableHead>
                     <TableHead>Qtd. Total</TableHead>
                     <TableHead>Aprovação</TableHead>
-                    <TableHead>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -395,13 +326,11 @@ export function DashboardUsuario() {
                       <TableCell className="font-medium">
                         #{lote.codigoLote}
                       </TableCell>
-                      <TableCell>{lote.tipoPecaNome}</TableCell>
+                      <TableCell>{lote.tipoPeca.nome}</TableCell>
                       <TableCell>
                         <Badge
                           variant={
-                            lote.status === "APROVADO"
-                              ? "default"
-                              : lote.status === "REPROVADO"
+                            lote.status === "REPROVADO"
                               ? "destructive"
                               : "secondary"
                           }
@@ -410,7 +339,10 @@ export function DashboardUsuario() {
                           {lote.status.replace("_", " ")}
                         </Badge>
                       </TableCell>
-                      <TableCell>{lote.quantidadeAmostras}</TableCell>
+                      <TableCell>
+                        {lote.quantidadeAmostrasDesejada} /{" "}
+                        {lote.pecasAprovadas}
+                      </TableCell>
                       <TableCell>{lote.quantidadePecas}</TableCell>
                       <TableCell
                         className={`font-bold ${
@@ -421,7 +353,6 @@ export function DashboardUsuario() {
                       >
                         {lote.taxaAprovacao.toFixed(1)}%
                       </TableCell>
-                      <TableCell>{/* Ações aqui */}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -429,232 +360,14 @@ export function DashboardUsuario() {
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="estatisticas" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Estatísticas Detalhadas</CardTitle>
-              <CardDescription>
-                Análise de desempenho ao longo do tempo (Mock data, conectar ao
-                backend)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="p-4">
-                  <div className="font-semibold mb-2">
-                    Taxa de Aprovação Mensal
-                  </div>
-                  <div className="h-32 flex items-center justify-center text-muted-foreground">
-                    Gráfico aqui...
-                  </div>
-                </Card>
-                <Card className="p-4">
-                  <div className="font-semibold mb-2">
-                    Tempo Médio de Medição
-                  </div>
-                  <div className="h-32 flex items-center justify-center text-muted-foreground">
-                    Gráfico aqui...
-                  </div>
-                </Card>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
       <DialogCriarLote
         open={dialogLoteAberto}
+        dadosIniciais={dadosNovoLote}
         setOpen={setDialogLoteAberto}
-        tiposPecas={tiposPeca.map((t) => ({
-          id: t.id,
-          nome: t.nome,
-          descricao: t.descricao,
-        }))}
+        tiposPecas={tiposPeca}
         onCriarLote={handleCriarLote}
       />
     </div>
-  );
-}
-
-interface DialogCriarLoteProps {
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  tiposPecas: { id: number; nome: string; descricao: string }[];
-  onCriarLote: (dados: {
-    tipoPecaId: number;
-    quantidade: number;
-    descricao: string;
-    quantidadeAmostras: number;
-  }) => Promise<void>;
-}
-
-function DialogCriarLote({
-  open,
-  setOpen,
-  tiposPecas,
-  onCriarLote,
-}: DialogCriarLoteProps) {
-  // Estados iniciais em 0 para garantir que a validação falhe no início
-  const [tipoPecaId, setTipoPecaId] = useState<string | number>("");
-  const [quantidade, setQuantidade] = useState(0);
-  const [descricao, setDescricao] = useState("");
-  const [quantidadeAmostras, setquantidadeAmostras] = useState<number>(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const tipoPecaSelecionado = tiposPecas.find(
-    (t) => t.id === Number(tipoPecaId)
-  );
-
-  const handleSubmit = async () => {
-    // Validação de BLINDAGEM: Se qualquer obrigatório for 0 ou "" (Não Válido)
-    if (!tipoPecaId || quantidade <= 0 || quantidadeAmostras <= 0) {
-      alert(
-        "Por favor, preencha todos os campos obrigatórios com valores válidos (Tipo de Peça, Quantidade Total e Amostras Desejadas)."
-      );
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      const descricaoFinal =
-        descricao.trim() || `Lote de ${tipoPecaSelecionado?.nome || "Peças"}`;
-
-      await onCriarLote({
-        tipoPecaId: Number(tipoPecaId),
-        quantidade: quantidade,
-        descricao: descricaoFinal,
-        quantidadeAmostras: quantidadeAmostras,
-      });
-
-      // Reset
-      setTipoPecaId("");
-      setQuantidade(0);
-      setDescricao("");
-      setquantidadeAmostras(0);
-    } catch (error) {
-      console.error("Erro ao submeter criação de lote:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          {/* Título necessário para acessibilidade */}
-          <DialogTitle className="flex items-center gap-2">
-            <Plus className="h-5 w-5" /> Criar Novo Lote de Medição
-          </DialogTitle>
-          <DialogDescription>
-            Informe os detalhes para iniciar o rastreamento de um novo lote de
-            peças.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium leading-none">
-              Tipo de Peça*
-            </label>
-            <Select value={String(tipoPecaId)} onValueChange={setTipoPecaId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um Tipo de Peça existente" />
-              </SelectTrigger>
-              <SelectContent>
-                {tiposPecas.map((tipo) => (
-                  <SelectItem key={tipo.id} value={String(tipo.id)}>
-                    {tipo.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="descricao"
-              className="text-sm font-medium leading-none"
-            >
-              Descrição do Lote
-            </label>
-            <Input
-              id="descricao"
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              placeholder={`Ex: Lote de ${
-                tipoPecaSelecionado?.nome || "Peças"
-              } - 1ª remessa`}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="quantidade"
-              className="text-sm font-medium leading-none"
-            >
-              Quantidade Total de Peças no Lote*
-            </label>
-            <Input
-              id="quantidade"
-              type="number"
-              // CORREÇÃO: Exibe "" se o valor for 0 (Para iniciar vazio)
-              value={quantidade === 0 ? "" : quantidade}
-              onChange={(e) =>
-                setQuantidade(
-                  e.target.value === "" ? 0 : Number(e.target.value)
-                )
-              }
-              min={1}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="amostras"
-              className="text-sm font-medium leading-none"
-            >
-              Amostras Desejadas*
-            </label>
-            <Input
-              id="amostras"
-              type="number"
-              // CORREÇÃO: Exibe "" se o valor for 0 (Para iniciar vazio)
-              value={quantidadeAmostras === 0 ? "" : quantidadeAmostras}
-              onChange={(e) =>
-                setquantidadeAmostras(
-                  e.target.value === "" ? 0 : Number(e.target.value)
-                )
-              }
-              placeholder="Informe o número de amostras a medir"
-              min={1}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button
-            type="submit"
-            onClick={handleSubmit}
-            // O botão estará desabilitado se os estados forem "" ou 0
-            disabled={
-              !tipoPecaId ||
-              quantidade <= 0 ||
-              quantidadeAmostras <= 0 ||
-              isSubmitting
-            }
-          >
-            {isSubmitting ? (
-              "Criando..."
-            ) : (
-              <>
-                <Plus className="h-4 w-4 mr-2" />
-                Criar Lote
-              </>
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

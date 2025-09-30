@@ -38,18 +38,30 @@ import {
   Plug,
   Unplug,
 } from "lucide-react";
-import {
-  CampoPeca,
-  IFormularioMedicaoViewProps,
-} from "@/hooks/formulario-medicao.types";
-import { useConnectarBluetooth } from "@/hooks/useConnectarBluetooth";
-import { set } from "date-fns";
 
+import { useConnectarBluetooth } from "@/hooks/useConnectarBluetooth";
+import {
+  LoteResponse,
+  LoteResumidoResponse,
+} from "@/contextos/api/controlequalidade";
+import { IFormularioMedicaoViewProps } from "@/hooks/useFormularioMedicao";
+
+// --- TIPOS E INTERFACES DO COMPONENTE ---
 interface LoteDisponivel {
   id: number;
   codigoLote: string;
   descricao: string;
   status: "EM_ANDAMENTO" | "EM_ANALISE" | "APROVADO" | "REPROVADO" | string;
+}
+
+// Interface genérica para o componente de campo de medição
+interface CampoParaMedicao {
+  nome: string;
+  label: string;
+  tipo: "text" | "number";
+  obrigatorio?: boolean;
+  min?: number;
+  max?: number;
 }
 
 export function FormularioMedicaoPecas({
@@ -81,6 +93,7 @@ export function FormularioMedicaoPecas({
   recomecarMedicao,
   cancelarMedicao,
   setClicouSelect,
+  focarPrimeiraCota,
 }: IFormularioMedicaoViewProps & { lotesDisponiveis: LoteDisponivel[] }) {
   const podeMostrarInputs =
     modo === "peca-a-peca" || (modo === "cota-a-cota" && cotaAtual);
@@ -92,22 +105,28 @@ export function FormularioMedicaoPecas({
     valorMicrometro,
     status,
     deviceName,
-    resetarValorMicrometro, // <-- Pegando a nova função do hook
+    resetarValorMicrometro,
   } = useConnectarBluetooth();
 
   const inputRefs = useRef<Record<string, HTMLInputElement>>({});
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
 
   const camposParaFoco = useMemo(() => {
-    if (!tipoPeca) return [];
-    if (modo === "peca-a-peca") {
-      return tipoPeca.campos
-        .filter((c) => c.tipo === "number")
-        .map((c) => c.nome);
+    // [CORREÇÃO] Garante que tipoPeca e metadadosCotas existam antes de usar .filter
+    if (!tipoPeca || !Array.isArray(tipoPeca.metadadosCotas)) {
+      return [];
     }
+
+    if (modo === "peca-a-peca") {
+      return tipoPeca.metadadosCotas
+        .filter((c: any) => c.tipo === "number")
+        .map((c: any) => c.nome);
+    }
+
     if (modo === "cota-a-cota" && cotaAtual) {
       return [cotaAtual.nome];
     }
+
     return [];
   }, [modo, tipoPeca, cotaAtual]);
 
@@ -131,21 +150,12 @@ export function FormularioMedicaoPecas({
     }
   }, [campoFocado, camposParaFoco]);
 
-  // [MUDANÇA PRINCIPAL] Lógica de reset do valor
   useEffect(() => {
-    // Só executa se tivermos um valor válido e um campo focado
     if (valorMicrometro === "0.000" || !campoFocado) {
       return;
     }
-
-    // 1. Aplica o valor recebido no campo focado
     atualizarValor(campoFocado, valorMicrometro);
-
-    // 2. Reseta imediatamente o valor no hook para "0.000"
-    // Isso "consome" o valor e previne que o useEffect seja disparado de novo com o mesmo valor.
     resetarValorMicrometro();
-
-    // 3. Move o foco para o próximo campo
     passarProProximoInput();
   }, [
     valorMicrometro,
@@ -161,11 +171,12 @@ export function FormularioMedicaoPecas({
     }
   }, [modo, tipoPeca, camposParaFoco, campoFocado, passarProProximoInput]);
 
-  const CampoMedicaoAutomatica = ({ campo }: { campo: CampoPeca }) => {
+  const CampoMedicaoAutomatica = ({ campo }: { campo: CampoParaMedicao }) => {
     const valor = valores[campo.nome] || "";
     const statusSpec = verificarEspecificacao(campo.nome, valor);
     const showCheck = campo.tipo === "number" && valor && statusSpec !== "info";
     const isFocoAtivo = campoFocado === campo.nome;
+
     return (
       <div key={campo.nome} className="space-y-2">
         <Label
@@ -174,7 +185,7 @@ export function FormularioMedicaoPecas({
             isFocoAtivo ? "font-bold text-blue-600" : "text-gray-700"
           }`}
         >
-          {campo.label}
+          {campo.nome}
           {campo.obrigatorio && <span className="text-red-500">*</span>}
           {showCheck && (
             <CheckCircle
@@ -192,11 +203,11 @@ export function FormularioMedicaoPecas({
           type={campo.tipo}
           min={campo.min}
           max={campo.max}
-          step={campo.step}
           value={valor}
+          onClick={() => passarProProximoInput()}
           onChange={(e) => atualizarValor(campo.nome, e.target.value)}
-          placeholder={`Aguardando medição BT...`}
-          readOnly={campo.tipo === "number" && isConnected}
+          placeholder={campo.label}
+          readOnly={(campo.tipo === "number") === false}
           className={`${erros[campo.nome] ? "border-red-500" : ""} ${
             isFocoAtivo
               ? "border-2 border-blue-500 bg-blue-50/50"
@@ -211,7 +222,6 @@ export function FormularioMedicaoPecas({
     );
   };
 
-  // ... (O resto do seu código permanece exatamente igual)
   const isLoteConcluido = loteCompletado && loteAprovado !== null;
   const statusFinal =
     loteAprovado === true
@@ -222,17 +232,17 @@ export function FormularioMedicaoPecas({
   const isAprovado = statusFinal === "APROVADO";
   const statusColor = isAprovado ? "text-green-600" : "text-red-600";
   const bgColor = isAprovado ? "bg-green-100" : "bg-red-100";
+
   const getSubmitButtonText = () => {
     if (modo === "peca-a-peca") {
       return pecaAtual < pecasNoLote
         ? "Salvar e Próxima Amostra"
         : "Finalizar Lote";
     }
-    if (modo === "cota-a-cota") {
+    if (modo === "cota-a-cota" && tipoPeca?.metadadosCotas) {
       const isUltimaCota =
-        tipoPeca?.campos &&
-        cotaAtual &&
-        cotaAtual.nome === tipoPeca.campos[tipoPeca.campos.length - 1].nome;
+        cotaAtual?.nome ===
+        tipoPeca.metadadosCotas[tipoPeca.metadadosCotas.length - 1].nome;
       const isUltimaPecaDaCota = pecaAtual === pecasNoLote;
       if (isUltimaCota && isUltimaPecaDaCota) {
         return "Finalizar Lote";
@@ -244,6 +254,17 @@ export function FormularioMedicaoPecas({
     }
     return "Salvar Medição";
   };
+
+  // [OTIMIZAÇÃO] Memoizando a lista de lotes para o select
+  const lotesParaSelect = useMemo(() => {
+    const lotesAtivos = lotesDisponiveis.filter(
+      (lote) => lote.status === "EM_ANDAMENTO" || lote.status === "EM_ANALISE"
+    );
+    return Array.from(new Set(lotesAtivos.map((l) => l.id))).map(
+      (id) => lotesAtivos.find((l) => l.id === id)!
+    );
+  }, [lotesDisponiveis]);
+
   if (isLoteConcluido) {
     return (
       <div className="p-6">
@@ -283,7 +304,7 @@ export function FormularioMedicaoPecas({
                 </p>
                 <p>
                   <strong>Peças Amostradas:</strong> {medicoesAcumuladas.length}{" "}
-                  /{pecasNoLote}
+                  / {pecasNoLote}
                 </p>
                 <p>
                   <strong>Modo de Preenchimento:</strong>{" "}
@@ -314,20 +335,7 @@ export function FormularioMedicaoPecas({
       </div>
     );
   }
-  const [lotesAtivos, setLotesAtivos] = useState<LoteDisponivel[]>([]);
-  const [lotesParaSelect, setLotesParaSelect] = useState<LoteDisponivel[]>([]);
-  useEffect(() => {
-    setLotesAtivos(
-      lotesDisponiveis.filter(
-        (lote) => lote.status === "EM_ANDAMENTO" || lote.status === "EM_ANALISE"
-      )
-    );
-    setLotesParaSelect(
-      Array.from(new Set(lotesAtivos.map((l) => l.id))).map(
-        (id) => lotesAtivos.find((l) => l.id === id)!
-      )
-    );
-  }, [lotesDisponiveis]);
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
@@ -356,8 +364,14 @@ export function FormularioMedicaoPecas({
                 setLoteSelecionadoId(value ? Number(value) : null)
               }
               disabled={medicoesAcumuladas.length > 0 || carregandoLotes}
+              // [CORREÇÃO] Usando onOpenChange para carregar os lotes de forma confiável
+              onOpenChange={(isOpen) => {
+                if (isOpen && setClicouSelect) {
+                  setClicouSelect(true);
+                }
+              }}
             >
-              <SelectTrigger onClick={() => setClicouSelect(true)}>
+              <SelectTrigger>
                 <SelectValue
                   placeholder={
                     carregandoLotes
@@ -381,7 +395,9 @@ export function FormularioMedicaoPecas({
                   </SelectGroup>
                 ) : (
                   <SelectItem value="none" disabled>
-                    Nenhum lote ativo disponível.
+                    {carregandoLotes
+                      ? "Carregando..."
+                      : "Nenhum lote ativo disponível."}
                   </SelectItem>
                 )}
               </SelectContent>
@@ -499,9 +515,10 @@ export function FormularioMedicaoPecas({
 
               <Separator />
 
-              {modo === "peca-a-peca" && tipoPeca?.campos && (
+              {/* [CORREÇÃO] Bloco de renderização para "peca-a-peca" reativado */}
+              {modo === "peca-a-peca" && tipoPeca?.metadadosCotas && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {tipoPeca.campos.map((campo) => (
+                  {tipoPeca.metadadosCotas.map((campo: any) => (
                     <CampoMedicaoAutomatica key={campo.nome} campo={campo} />
                   ))}
                 </div>
@@ -532,13 +549,16 @@ export function FormularioMedicaoPecas({
         {tipoPeca && modo && (
           <div className="flex gap-3 flex-wrap">
             <Button
-              onClick={salvarMedicao}
+              onClick={() => {
+                salvarMedicao();
+                focarPrimeiraCota();
+              }}
               disabled={salvando || !podeMostrarInputs || existeErroCritico()}
               className="flex-1 sm:flex-none"
             >
               {salvando ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                  <Loader className="h-4 w-4 mr-2 animate-spin" />
                   Salvando...
                 </>
               ) : (
