@@ -17,7 +17,7 @@ import {
 
 export type ModoPreenchimento = "peca-a-peca" | "cota-a-cota";
 
-export interface IFormularioMedicaoViewProps {
+interface IFormularioMedicaoViewProps {
   // --- Estado de Configuração do Lote ---
   lotesDisponiveis: LoteResumidoResponse[]; // [CORREÇÃO] Deve ser um array
   carregandoLotes: boolean;

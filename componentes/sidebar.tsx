@@ -22,23 +22,15 @@ import {
   Loader, // ⬅️ Ícone
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  BluetoothHook,
+  useConnectarBluetooth,
+} from "@/hooks/useConnectarBluetooth";
 // import { useIsMobile } from "@/components/ui/use-mobile"; // Removido por não estar em uso
 
 // =========================================================================
 // HOOK: useConnectarBluetooth (Copiado da sua implementação)
 // =========================================================================
-
-// --- INTERFACES, CONSTANTES E DECODIFICAÇÃO ---
-interface BluetoothHook {
-  status: string;
-  valorMicrometro: string;
-  isConnected: boolean;
-  connect: () => Promise<void>;
-  disconnect: () => void;
-  deviceName: string | null;
-  resetarValorMicrometro: () => void;
-  isConnecting: boolean; // ⬅️ Adicionado para o botão de loading
-}
 
 // UUIDs específicos para o micrômetro, mantidos para o caso de o dispositivo ser um
 const MITUTOYO_SERVICE_UUID = "7eafd361-f150-4785-b307-47d34ed52c3c";
@@ -61,136 +53,26 @@ function decodeMitutoyoUwave(dataView: DataView): number | null {
   const valorBruto = tempView.getInt32(0, true);
   return valorBruto / Math.pow(10, CASAS_DECIMAIS);
 }
-
-// =========================================================================
-// HOOK MODIFICADO PARA ACEITAR TODOS OS DISPOSITIVOS
-// =========================================================================
-function useConnectarBluetooth(): BluetoothHook {
-  const [status, setStatus] = useState("Clique para conectar");
-  const [valorMicrometro, setValorMicrometro] = useState("0.000");
-  const [device, setDevice] = useState<BluetoothDevice | null>(null);
-  const [characteristic, setCharacteristic] =
-    useState<BluetoothRemoteGATTCharacteristic | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false); // ⬅️ NOVO ESTADO
-
-  const resetarValorMicrometro = useCallback(() => {
-    setValorMicrometro("0.000");
-  }, []);
-
-  const handleNotifications = useCallback((event: Event) => {
-    console.log(">>> [handleNotifications] Evento recebido!");
-    const target = event.target as BluetoothRemoteGATTCharacteristic;
-    if (!target.value) return;
-
-    const valorFinal = decodeMitutoyoUwave(target.value);
-
-    if (valorFinal !== null) {
-      const formattedValue = valorFinal.toFixed(CASAS_DECIMAIS);
-      setValorMicrometro(formattedValue);
-    }
-  }, []);
-
-  const onDisconnected = useCallback(() => {
-    setStatus(`Dispositivo "${device?.name || "Desconhecido"}" desconectado.`);
-    setValorMicrometro("0.000");
-    setDevice(null);
-    setCharacteristic(null);
-  }, [device]);
-
-  useEffect(() => {
-    if (device) {
-      device.addEventListener("gattserverdisconnected", onDisconnected);
-    }
-    if (characteristic) {
-      characteristic.addEventListener(
-        "characteristicvaluechanged",
-        handleNotifications
-      );
-      characteristic
-        .startNotifications()
-        .then(() => {
-          setStatus(`PRONTO! Conectado a: ${device?.name}.`);
-          console.log("Notificações iniciadas com sucesso.");
-        })
-        .catch((error) => {
-          setStatus(`Erro ao iniciar notificações: ${error.message}`);
-        });
-    }
-    return () => {
-      if (device) {
-        device.removeEventListener("gattserverdisconnected", onDisconnected);
-      }
-      if (characteristic) {
-        characteristic.removeEventListener(
-          "characteristicvaluechanged",
-          handleNotifications
-        );
-      }
-    };
-  }, [device, characteristic, onDisconnected, handleNotifications]);
-
-  const connect = useCallback(async () => {
-    if (!navigator.bluetooth) {
-      setStatus("Web Bluetooth API não é suportada.");
-      return;
-    }
-    setIsConnecting(true); // INÍCIO DA CONEXÃO
-    setStatus("Procurando por dispositivo...");
-    try {
-      const newDevice = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [MITUTOYO_SERVICE_UUID],
-      });
-
-      setDevice(newDevice);
-      setStatus(`Conectando a: ${newDevice.name || "Dispositivo"}...`);
-
-      const server = await newDevice.gatt!.connect();
-
-      const service = await server.getPrimaryService(MITUTOYO_SERVICE_UUID);
-      const newCharacteristic = await service.getCharacteristic(
-        MITUTOYO_CHARACTERISTIC_UUID
-      );
-      setCharacteristic(newCharacteristic);
-    } catch (error: any) {
-      if (error.name === "NotFoundError") {
-        setStatus("Seleção cancelada ou nenhum dispositivo encontrado.");
-      } else {
-        setStatus(`Erro de Conexão: ${error.message}`);
-      }
-      console.error("Erro completo de conexão Bluetooth:", error);
-      setDevice(null);
-    } finally {
-      setIsConnecting(false); // FIM DA CONEXÃO (sucesso ou falha)
-    }
-  }, []);
-
-  const disconnect = useCallback(() => {
-    if (device?.gatt?.connected) {
-      device.gatt.disconnect();
-    }
-  }, [device]);
-
-  return {
-    status,
-    valorMicrometro,
-    isConnected: !!device?.gatt?.connected,
-    connect,
-    disconnect,
-    deviceName: device?.name ?? null,
-    resetarValorMicrometro,
-    isConnecting, // ⬅️ RETORNADO O NOVO ESTADO
-  };
-}
-
 // =========================================================================
 // NOVO COMPONENTE: BluetoothStatus (Integração Visual)
 // =========================================================================
-function BluetoothStatus() {
-  // ⬅️ Usa o hook localmente
-  const { connect, disconnect, isConnected, status, deviceName, isConnecting } =
-    useConnectarBluetooth();
+interface BluetoothConnectHook {
+  status: string;
+  isConnected: boolean;
+  isConnecting: boolean; // 👈 Adicionado aqui
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  deviceName: string | null;
+}
 
+function BluetoothStatus({
+  connect,
+  disconnect,
+  isConnected,
+  status,
+  deviceName,
+  isConnecting,
+}: BluetoothConnectHook) {
   const statusColor = isConnected ? "text-green-500" : "text-red-500";
   const statusBg = isConnected ? "bg-green-100/50" : "bg-red-100/50";
   const statusTextColor = isConnected ? "text-green-800" : "text-red-800";
@@ -280,11 +162,23 @@ function ItemMenu({ icone, titulo, ativo = false, onClick }: ItemMenuProps) {
 interface SidebarProps {
   paginaAtiva?: string;
   onMudarPagina?: (pagina: string) => void;
+  status: string;
+  isConnected: boolean;
+  isConnecting: boolean; // 👈 Adicionado aqui
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  deviceName: string | null;
 }
 
 export function Sidebar({
   paginaAtiva = "dashboard",
   onMudarPagina,
+  connect,
+  disconnect,
+  isConnected,
+  status,
+  deviceName,
+  isConnecting,
 }: SidebarProps) {
   const { usuario, logout } = useAutenticacao();
   const [menuAberto, setMenuAberto] = useState(false);
@@ -363,9 +257,15 @@ export function Sidebar({
             ))}
         </div>
       </nav>
-
       {/* ⬅️ NOVO COMPONENTE DE STATUS BLUETOOTH */}
-      <BluetoothStatus />
+      <BluetoothStatus
+        connect={connect}
+        disconnect={disconnect}
+        isConnected={isConnected}
+        status={status}
+        deviceName={deviceName}
+        isConnecting={isConnected}
+      />
 
       {/* Informações do usuário */}
       <div className="p-4 border-t border-sidebar-border">

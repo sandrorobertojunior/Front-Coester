@@ -40,10 +40,13 @@ import {
 
 import { useConnectarBluetooth } from "@/hooks/useConnectarBluetooth";
 import {
+  CotaMetadata,
   LoteResponse,
   LoteResumidoResponse,
+  MedicaoResponse,
+  TipoPecaResponse,
 } from "@/contextos/api/controlequalidade";
-import { IFormularioMedicaoViewProps } from "@/hooks/useFormularioMedicao";
+import { ModoPreenchimento } from "@/hooks/useFormularioMedicao";
 import { toast } from "@/components/ui/use-toast"; // Assumindo que você tem um toast
 
 // --- TIPOS E INTERFACES DO COMPONENTE ---
@@ -62,7 +65,55 @@ interface CampoParaMedicao {
   min?: number;
   max?: number;
 }
+export interface IFormularioMedicaoViewProps {
+  // --- Estado de Configuração do Lote ---
+  lotesDisponiveis: LoteResumidoResponse[]; // [CORREÇÃO] Deve ser um array
+  carregandoLotes: boolean;
+  loteSelecionadoId: number | null;
+  setClicouSelect: (clicou: boolean) => void;
 
+  // --- Detalhes da Peça e Especificação (Derivados do lote) ---
+  tipoPeca?: TipoPecaResponse; // [CORREÇÃO] Usando o tipo de resposta da API
+  pecasNoLote: number;
+  modo: ModoPreenchimento | null;
+
+  // --- Estado de Preenchimento da Medição ---
+  pecaAtual: number;
+  cotaAtual?: CotaMetadata; // [CORREÇÃO] Usando o tipo de metadados da API
+  valores: Record<string, string>;
+  observacoes: string;
+  erros: Record<string, string>;
+  medicoesAcumuladas: MedicaoResponse[]; // [CORREÇÃO] Usando o tipo de resposta da API
+
+  // --- Estado de Ação e Usuário ---
+  salvando: boolean;
+  loteCompletado: boolean;
+  loteAprovado: boolean | null;
+  usuarioNome: string;
+
+  // --- Handlers (Funções de Callback) ---
+  setLoteSelecionadoId: (id: number | null) => Promise<void>;
+  setModo: (modo: ModoPreenchimento) => void;
+  atualizarValor: (campo: string, valor: string) => void;
+  setObservacoes: (obs: string) => void;
+  salvarMedicao: () => Promise<void>;
+  resetarFormulario: () => void;
+  recomecarMedicao: () => Promise<void>;
+  cancelarMedicao: () => void; // [CORREÇÃO] Geralmente síncrono
+  focarPrimeiraCota: () => void;
+  // --- Funções de Lógica ---
+  existeErroCritico: () => boolean;
+  verificarEspecificacao: (
+    nomeCampo: string,
+    valor: string
+  ) => "aprovado" | "fora-spec" | "info";
+
+  // --- Propriedades do Container ---
+  onVoltar?: () => void;
+  obterLote: (loteId: number) => Promise<LoteResponse | undefined>;
+  valorMicrometro: string;
+  resetarValorMicrometro: () => void;
+}
 export function FormularioMedicaoPecas({
   lotesDisponiveis,
   carregandoLotes,
@@ -92,19 +143,12 @@ export function FormularioMedicaoPecas({
   recomecarMedicao,
   cancelarMedicao,
   setClicouSelect,
-  obterLote, // Adicionado aqui para uso no useEffect
+  obterLote,
+  valorMicrometro,
+  resetarValorMicrometro, // Adicionado aqui para uso no useEffect
 }: IFormularioMedicaoViewProps & { lotesDisponiveis: LoteDisponivel[] }) {
   const podeMostrarInputs =
     modo === "peca-a-peca" || (modo === "cota-a-cota" && cotaAtual);
-
-  // Removido 'connect' e 'disconnect' para gerenciar o BT externamente
-  const {
-    isConnected,
-    valorMicrometro,
-    status,
-    deviceName,
-    resetarValorMicrometro,
-  } = useConnectarBluetooth();
 
   const inputRefs = useRef<Record<string, HTMLInputElement>>({});
   const [campoFocado, setCampoFocado] = useState<string | null>(null);

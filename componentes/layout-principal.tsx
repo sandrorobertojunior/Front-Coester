@@ -17,6 +17,7 @@ import { Loader2 } from "lucide-react";
 import { useFormularioMedicao } from "@/hooks/useFormularioMedicao";
 import { FormularioMedicaoPecas } from "./formulario-medicao-pecas";
 import { DashboardAdministrador } from "./dashboard-administrador";
+import { useConnectarBluetooth } from "@/hooks/useConnectarBluetooth";
 
 interface LayoutPrincipalProps {
   children?: React.ReactNode;
@@ -25,9 +26,18 @@ interface LayoutPrincipalProps {
 export function LayoutPrincipal({ children }: LayoutPrincipalProps) {
   const { estaLogado, carregando, usuario } = useAutenticacao();
   const [paginaAtiva, setPaginaAtiva] = useState("dashboard");
-
   // Determina se é administrador
   const ehAdmin = usuario?.tipo === "administrador";
+  const {
+    isConnected,
+    valorMicrometro,
+    status,
+    deviceName,
+    resetarValorMicrometro,
+    isConnecting,
+    connect,
+    disconnect,
+  } = useConnectarBluetooth();
 
   // Variável para o nome do usuário (usando o nome real do contexto de autenticação)
   const usuarioNome = usuario?.nome || "Operador Desconhecido";
@@ -68,7 +78,13 @@ export function LayoutPrincipal({ children }: LayoutPrincipalProps) {
 
       case "nova-medicao":
         // Conexão com o Formulário de Medição
-        return <FormularioMedicaoPecas {...formularioMedicaoProps} />;
+        return (
+          <FormularioMedicaoPecas
+            valorMicrometro={valorMicrometro}
+            resetarValorMicrometro={resetarValorMicrometro}
+            {...formularioMedicaoProps}
+          />
+        );
 
       case "medicoes":
         return ehAdmin ? <DashboardAdministrador /> : <DashboardUsuario />;
@@ -92,7 +108,16 @@ export function LayoutPrincipal({ children }: LayoutPrincipalProps) {
   // Se estiver logado, mostra layout com sidebar
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar paginaAtiva={paginaAtiva} onMudarPagina={setPaginaAtiva} />
+      <Sidebar
+        paginaAtiva={paginaAtiva}
+        onMudarPagina={setPaginaAtiva}
+        status={status}
+        isConnected={isConnected}
+        isConnecting={isConnecting}
+        connect={connect}
+        disconnect={disconnect}
+        deviceName={deviceName}
+      />
       <main className="flex-1 overflow-auto">
         {children || renderizarConteudo()}
       </main>
