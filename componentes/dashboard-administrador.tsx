@@ -123,7 +123,7 @@ export function DashboardAdministrador() {
             Painel Administrativo
           </h1>
           <p className="text-muted-foreground">
-            Visão geral e gerenciamento do sistema, **{usuario?.nome}**
+            Visão geral e gerenciamento do sistema, {usuario?.nome}
           </p>
         </div>
       </div>
@@ -228,6 +228,7 @@ export function DashboardAdministrador() {
                   <TableRow>
                     <TableHead>Usuário</TableHead>
                     <TableHead>Email</TableHead>
+
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>

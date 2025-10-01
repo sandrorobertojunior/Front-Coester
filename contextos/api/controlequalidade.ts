@@ -25,6 +25,15 @@ export interface CotaMetadata {
   valorPadrao?: number;
 }
 
+interface CampoParaMedicao {
+  nome: string;
+  label: string;
+  tipo: "text" | "number";
+  obrigatorio?: boolean;
+  min?: number;
+  max?: number;
+}
+
 /**
  * Resposta para um Tipo de Peça. (Baseado em TipoPecaResponse)
  */

@@ -34,7 +34,6 @@ import {
   Loader,
   ThumbsUp,
   ThumbsDown,
-  Bluetooth,
   Plug,
   Unplug,
 } from "lucide-react";
@@ -45,6 +44,7 @@ import {
   LoteResumidoResponse,
 } from "@/contextos/api/controlequalidade";
 import { IFormularioMedicaoViewProps } from "@/hooks/useFormularioMedicao";
+import { toast } from "@/components/ui/use-toast"; // Assumindo que você tem um toast
 
 // --- TIPOS E INTERFACES DO COMPONENTE ---
 interface LoteDisponivel {
@@ -54,7 +54,6 @@ interface LoteDisponivel {
   status: "EM_ANDAMENTO" | "EM_ANALISE" | "APROVADO" | "REPROVADO" | string;
 }
 
-// Interface genérica para o componente de campo de medição
 interface CampoParaMedicao {
   nome: string;
   label: string;
@@ -93,14 +92,13 @@ export function FormularioMedicaoPecas({
   recomecarMedicao,
   cancelarMedicao,
   setClicouSelect,
-  focarPrimeiraCota,
+  obterLote, // Adicionado aqui para uso no useEffect
 }: IFormularioMedicaoViewProps & { lotesDisponiveis: LoteDisponivel[] }) {
   const podeMostrarInputs =
     modo === "peca-a-peca" || (modo === "cota-a-cota" && cotaAtual);
 
+  // Removido 'connect' e 'disconnect' para gerenciar o BT externamente
   const {
-    connect,
-    disconnect,
     isConnected,
     valorMicrometro,
     status,
@@ -111,8 +109,12 @@ export function FormularioMedicaoPecas({
   const inputRefs = useRef<Record<string, HTMLInputElement>>({});
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
 
+  // ESTADO MOVIDO PARA O NÍVEL SUPERIOR (Hook 18 na sua lista anterior)
+  const [loteFinalizado, setLoteFinalizado] = useState<LoteResponse | null>(
+    null
+  );
+
   const camposParaFoco = useMemo(() => {
-    // [CORREÇÃO] Garante que tipoPeca e metadadosCotas existam antes de usar .filter
     if (!tipoPeca || !Array.isArray(tipoPeca.metadadosCotas)) {
       return [];
     }
@@ -130,32 +132,45 @@ export function FormularioMedicaoPecas({
     return [];
   }, [modo, tipoPeca, cotaAtual]);
 
+  const focarNoPrimeiroInput = useCallback(() => {
+    const primeiroCampo = camposParaFoco[0];
+    if (primeiroCampo && inputRefs.current[primeiroCampo]) {
+      setCampoFocado(primeiroCampo);
+      inputRefs.current[primeiroCampo]?.focus();
+    }
+  }, [camposParaFoco]);
+
   const passarProProximoInput = useCallback(() => {
     if (!campoFocado) {
-      const primeiroCampo = camposParaFoco[0];
-      if (primeiroCampo) {
-        setCampoFocado(primeiroCampo);
-        inputRefs.current[primeiroCampo]?.focus();
-      }
+      focarNoPrimeiroInput();
       return;
     }
     const currentIndex = camposParaFoco.indexOf(campoFocado);
+
+    // AQUI ESTÁ A LÓGICA DE VOLTAR AO PRIMEIRO INPUT QUANDO A TECLA ENTER
+    // OU O MICRÔMETRO FOR PRESSIONADO NO ÚLTIMO CAMPO
     if (currentIndex === -1 || currentIndex === camposParaFoco.length - 1) {
+      // Se for o último campo, em vez de retornar, voltamos ao primeiro
+      focarNoPrimeiroInput();
       return;
     }
+
     const nextCampo = camposParaFoco[currentIndex + 1];
     if (nextCampo) {
       setCampoFocado(nextCampo);
       inputRefs.current[nextCampo]?.focus();
     }
-  }, [campoFocado, camposParaFoco]);
+  }, [campoFocado, camposParaFoco, focarNoPrimeiroInput]);
 
+  // Lógica de leitura de Micrômetro
   useEffect(() => {
     if (valorMicrometro === "0.000" || !campoFocado) {
       return;
     }
     atualizarValor(campoFocado, valorMicrometro);
     resetarValorMicrometro();
+
+    // ⚠️ AQUI o foco vai para o próximo campo ou volta ao primeiro (se for o último)
     passarProProximoInput();
   }, [
     valorMicrometro,
@@ -165,11 +180,42 @@ export function FormularioMedicaoPecas({
     passarProProximoInput,
   ]);
 
+  // Focar no input ao mudar de modo/cota
   useEffect(() => {
     if (modo && tipoPeca && camposParaFoco.length > 0 && !campoFocado) {
       passarProProximoInput();
     }
   }, [modo, tipoPeca, camposParaFoco, campoFocado, passarProProximoInput]);
+
+  // NOVO USE EFFECT MOVIDO PARA O NÍVEL SUPERIOR
+  useEffect(() => {
+    const carregarLote = async () => {
+      // ✅ CLÁUSULA DE GUARDA: Resolve o erro de tipagem 'number | null'
+      if (loteSelecionadoId === null) {
+        setLoteFinalizado(null);
+        return;
+      }
+
+      let loteCarregado: LoteResponse | null = null;
+
+      try {
+        // Chamada Segura: TypeScript agora sabe que loteSelecionadoId é um 'number'.
+        const resultadoAPI = await obterLote(loteSelecionadoId);
+
+        if (resultadoAPI) {
+          loteCarregado = resultadoAPI;
+        }
+      } catch (error) {
+        console.error("Erro fatal ao carregar o lote:", error);
+      }
+
+      setLoteFinalizado(loteCarregado);
+    };
+
+    carregarLote();
+
+    // Dependências: loteSelecionadoId (que é number|null) e a função 'obterLote'
+  }, [loteSelecionadoId, obterLote]);
 
   const CampoMedicaoAutomatica = ({ campo }: { campo: CampoParaMedicao }) => {
     const valor = valores[campo.nome] || "";
@@ -190,7 +236,7 @@ export function FormularioMedicaoPecas({
           {showCheck && (
             <CheckCircle
               className={`h-4 w-4 ${
-                statusSpec === "aprovado" ? "text-green-600" : "text-red-600"
+                "aprovado" === "aprovado" ? "text-green-600" : "text-red-600"
               }`}
             />
           )}
@@ -201,10 +247,8 @@ export function FormularioMedicaoPecas({
             if (el) inputRefs.current[campo.nome] = el;
           }}
           type={campo.tipo}
-          min={campo.min}
-          max={campo.max}
           value={valor}
-          onClick={() => passarProProximoInput()}
+          /* onClick={() => passarProProximoInput()} */
           onChange={(e) => atualizarValor(campo.nome, e.target.value)}
           placeholder={campo.label}
           readOnly={(campo.tipo === "number") === false}
@@ -265,6 +309,7 @@ export function FormularioMedicaoPecas({
     );
   }, [lotesDisponiveis]);
 
+  // ✅ CORREÇÃO DO ERRO DE HOOKS: O retorno condicional (if) vem DEPOIS de todos os Hooks
   if (isLoteConcluido) {
     return (
       <div className="p-6">
@@ -290,8 +335,8 @@ export function FormularioMedicaoPecas({
               Registro de Medição Concluído!
             </CardTitle>
             <CardDescription>
-              O preenchimento das **{medicoesAcumuladas.length || pecasNoLote}**
-              medições de amostra para o lote **{loteSelecionadoId}** foi
+              O preenchimento das {medicoesAcumuladas.length || pecasNoLote}
+              medições de amostra para o lote {loteSelecionadoId} foi
               finalizado.
             </CardDescription>
           </CardHeader>
@@ -316,7 +361,6 @@ export function FormularioMedicaoPecas({
               <Button
                 onClick={() => {
                   resetarFormulario();
-                  if (onVoltar) onVoltar();
                 }}
                 className="flex-1"
               >
@@ -342,9 +386,7 @@ export function FormularioMedicaoPecas({
         <h1 className="text-3xl font-bold text-foreground mb-2">
           Registro de Medições de Lote
         </h1>
-        <p className="text-muted-foreground">
-          Preencha as medições da amostra **{pecaAtual}** de **{pecasNoLote}**
-        </p>
+        <p className="text-muted-foreground"></p>
       </div>
       <div className="space-y-6">
         <Card>
@@ -364,7 +406,6 @@ export function FormularioMedicaoPecas({
                 setLoteSelecionadoId(value ? Number(value) : null)
               }
               disabled={medicoesAcumuladas.length > 0 || carregandoLotes}
-              // [CORREÇÃO] Usando onOpenChange para carregar os lotes de forma confiável
               onOpenChange={(isOpen) => {
                 if (isOpen && setClicouSelect) {
                   setClicouSelect(true);
@@ -406,15 +447,15 @@ export function FormularioMedicaoPecas({
               <Alert className="mt-4 border-l-4 border-l-blue-500">
                 <Info className="h-4 w-4" />
                 <AlertDescription>
-                  Lote Selecionado: **{tipoPeca.nome}**. Amostragem Necessária:
-                  **{pecasNoLote}** peças.
+                  Lote Selecionado: {tipoPeca.nome}. Amostragem Necessária:
+                  {pecasNoLote} peças.
                 </AlertDescription>
               </Alert>
             )}
             {erros.critico && (
               <Alert variant="destructive" className="mt-3">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>**{erros.critico}**</AlertDescription>
+                <AlertDescription>{erros.critico}</AlertDescription>
               </Alert>
             )}
           </CardContent>
@@ -438,7 +479,7 @@ export function FormularioMedicaoPecas({
                 className="flex-1 h-20 flex-col"
                 variant="outline"
               >
-                **Peça-a-Peça**
+                Peça-a-Peça
                 <span className="text-xs font-normal">
                   (Todos os campos de uma amostra de cada vez)
                 </span>
@@ -448,7 +489,7 @@ export function FormularioMedicaoPecas({
                 className="flex-1 h-20 flex-col"
                 variant="outline"
               >
-                **Cota-a-Cota**
+                Cota-a-Cota
                 <span className="text-xs font-normal">
                   (Uma dimensão de todas as amostras de cada vez)
                 </span>
@@ -473,44 +514,21 @@ export function FormularioMedicaoPecas({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <Alert
-                className={`border-l-4 ${
-                  isConnected ? "border-l-green-500" : "border-l-red-500"
-                }`}
-              >
-                {isConnected ? (
-                  <Plug className="h-4 w-4" />
-                ) : (
-                  <Unplug className="h-4 w-4" />
-                )}
-                <AlertTitle>
-                  {isConnected
-                    ? "Conectado via Bluetooth"
-                    : "Bluetooth Desconectado"}
-                </AlertTitle>
-                <AlertDescription>
-                  {status}
-                  {deviceName && isConnected && (
-                    <span className="ml-2 font-semibold">({deviceName})</span>
-                  )}
-                </AlertDescription>
-              </Alert>
-
               <Separator />
 
               <div className="flex justify-between text-sm text-muted-foreground">
                 {modo === "peca-a-peca" ? (
                   <span>
-                    Progresso do Lote: **{medicoesAcumuladas.length}** /{" "}
+                    Progresso do Lote: {medicoesAcumuladas.length} /{" "}
                     {pecasNoLote} amostras preenchidas.
                   </span>
                 ) : (
                   <span>
-                    **Progresso da Cota**: {pecaAtual - 1} / {pecasNoLote}{" "}
-                    amostras desta cota concluídas.
+                    Progresso da Cota: {pecaAtual - 1} / {pecasNoLote} amostras
+                    desta cota concluídas.
                   </span>
                 )}
-                <span>Operador: **{usuarioNome}**</span>
+                <span>Operador: {usuarioNome}</span>
               </div>
 
               <Separator />
@@ -551,7 +569,7 @@ export function FormularioMedicaoPecas({
             <Button
               onClick={() => {
                 salvarMedicao();
-                focarPrimeiraCota();
+                focarNoPrimeiroInput();
               }}
               disabled={salvando || !podeMostrarInputs || existeErroCritico()}
               className="flex-1 sm:flex-none"
@@ -569,14 +587,7 @@ export function FormularioMedicaoPecas({
               )}
             </Button>
 
-            <Button
-              variant={isConnected ? "destructive" : "default"}
-              onClick={isConnected ? disconnect : connect}
-              className="flex-1 sm:flex-none"
-            >
-              <Bluetooth className="h-4 w-4 mr-2" />
-              {isConnected ? "Desconectar BT" : "Conectar Bluetooth"}
-            </Button>
+            {/* REMOVIDO: Botão de Conectar/Desconectar Bluetooth */}
 
             <Button
               variant="outline"

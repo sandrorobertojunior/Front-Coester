@@ -1,6 +1,6 @@
 // src/hooks/useFormularioMedicao.ts
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, use } from "react";
 import { useAutenticacao } from "@/contextos/contexto-autenticacao";
 import { toast } from "@/components/ui/use-toast";
 
@@ -62,6 +62,7 @@ export interface IFormularioMedicaoViewProps {
 
   // --- Propriedades do Container ---
   onVoltar?: () => void;
+  obterLote: (loteId: number) => Promise<LoteResponse | undefined>;
 }
 // --- ESTADO INICIAL ---
 interface FormularioState {
@@ -247,6 +248,33 @@ export function useFormularioMedicao(
     }));
   }, []);
 
+  const obterLote = useCallback(
+    async (loteId: number): Promise<LoteResponse | undefined> => {
+      // 1. Não depende mais de 'estado.loteSelecionadoId', mas sim do parâmetro
+      if (!loteId) return;
+
+      try {
+        // 2. Chama a API usando o ID recebido
+        const lote = await api.obterDetalheLote(loteId);
+
+        // 3. ❌ REMOÇÃO: Não atualizamos mais o estado aqui.
+        //    Se precisar atualizar o estado com o lote, faça isso no local onde você chamar esta função.
+
+        // ✅ RETORNA o objeto lote
+        return lote;
+      } catch (error) {
+        toast({
+          title: "Erro ao obter lote",
+          description: "Não foi possível obter os detalhes do lote.",
+          variant: "destructive",
+        });
+        // Em caso de erro, retornamos 'undefined' (ou lançamos o erro, dependendo da sua necessidade)
+        return undefined;
+      }
+    },
+    [] // 4. Dependências vazias, pois a função agora depende apenas do seu parâmetro (loteId)
+  );
+
   // --- HANDLER: VOLTAR PARA A PRIMEIRA COTA (O que você pediu!) ---
   const focarPrimeiraCota = useCallback(() => {
     console.log("Focando na primeira cota...");
@@ -364,5 +392,6 @@ export function useFormularioMedicao(
     onVoltar,
     setClicouSelect,
     focarPrimeiraCota,
+    obterLote,
   };
 }

@@ -315,7 +315,7 @@ export function DashboardUsuario() {
                     <TableHead>Cód. Lote</TableHead>
                     <TableHead>Tipo de Peça</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Amostras</TableHead>
+                    <TableHead>Amostras Necessarias/Aprovadas</TableHead>
                     <TableHead>Qtd. Total</TableHead>
                     <TableHead>Aprovação</TableHead>
                   </TableRow>
