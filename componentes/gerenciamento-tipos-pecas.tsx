@@ -262,7 +262,7 @@ export function GerenciamentoLotesEPecas() {
                       <TableHead>Peça</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Peças</TableHead>
-                      <TableHead>Amostras</TableHead>
+                      <TableHead>AmostrasDesejadas/Aprovadas</TableHead>
                       <TableHead>% Aprov.</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -287,8 +287,8 @@ export function GerenciamentoLotesEPecas() {
                         </TableCell>
                         <TableCell>{lote.quantidadePecas}</TableCell>
                         <TableCell>
-                          {lote.pecasAprovadas + lote.pecasReprovadas} /{" "}
-                          {lote.quantidadeAmostrasDesejada}
+                          {lote.quantidadeAmostrasDesejada} /{" "}
+                          {lote.pecasAprovadas}
                         </TableCell>
                         <TableCell
                           className={`font-bold ${

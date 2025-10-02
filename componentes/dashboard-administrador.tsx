@@ -1,3 +1,4 @@
+// src/components/admin/DashboardAdministrador.tsx
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
@@ -39,6 +40,7 @@ import {
 import { useAutenticacao } from "@/contextos/contexto-autenticacao";
 import { useDashboardData } from "../hooks/useDashboardData"; // Seu Hook Principal
 import { DialogCriarLote } from "./DialogCriarLote"; // Importando o diálogo separado
+import { DialogCadastrarUsuario } from "./DialogCadastrarUsuario"; // 💡 NOVO: Importando o diálogo de cadastro
 
 // --- FUNÇÕES AUXILIARES ---
 
@@ -73,6 +75,7 @@ export function DashboardAdministrador() {
     carregando, // Usando o loading geral
     erro, // Usando o erro geral
     recarregarDashboard,
+    recarregarUsuarios, // 💡 ASSUMIDO: Função para recarregar a lista de usuários no seu useDashboardData
   } = useDashboardData();
 
   const [abaAtiva, setAbaAtiva] = useState("visao-geral");
@@ -198,22 +201,20 @@ export function DashboardAdministrador() {
         </TabsContent>
 
         <TabsContent value="usuarios" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Gerenciamento de Usuários</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por nome ou email..."
-                  value={termoBusca}
-                  onChange={(e) => setTermoBusca(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </CardContent>
-          </Card>
+          {/* 💡 NOVO: Botão de Cadastrar Usuário e Busca em uma linha */}
+          <div className="flex justify-between items-center gap-4">
+            <div className="relative w-full max-w-sm">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome ou email..."
+                value={termoBusca}
+                onChange={(e) => setTermoBusca(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            {/* O diálogo chama recarregarUsuarios após o sucesso */}
+            <DialogCadastrarUsuario onSuccess={recarregarUsuarios} />
+          </div>
 
           <Card>
             <CardHeader>
@@ -247,14 +248,14 @@ export function DashboardAdministrador() {
                       <TableRow key={user.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8">
+                            {/* <Avatar className="h-8 w-8">
                               <AvatarFallback>
                                 {user.username
                                   ?.split(" ")
                                   .map((n) => n[0])
                                   .join("")}
                               </AvatarFallback>
-                            </Avatar>
+                            </Avatar> */}
                             <p className="font-medium text-sm">
                               {user.username}
                             </p>

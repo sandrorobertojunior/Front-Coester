@@ -19,6 +19,7 @@ interface DashboardData {
   erro: string | null; // Um único estado de erro geral
 
   recarregarDashboard: () => void;
+  recarregarUsuarios: () => Promise<void>;
 }
 
 // Estado inicial para o dashboard
@@ -71,7 +72,17 @@ export function useDashboardData(): DashboardData {
   useEffect(() => {
     carregarDados();
   }, [carregarDados]);
-
+  // --- 💡 NOVA FUNÇÃO: Recarregar apenas a lista de usuários ---
+  const recarregarUsuarios = useCallback(async () => {
+    // Não alteramos o estado 'carregando' geral, pois só afeta uma aba
+    try {
+      const dadosUsuarios = await api.getAllUsuarios();
+      setUsuarios(dadosUsuarios);
+    } catch (error: any) {
+      console.error("Falha ao recarregar usuários:", error);
+      // Você pode optar por definir um erro mais específico para a função aqui
+    }
+  }, [api]);
   // --- RETORNO DO HOOK ---
   return {
     // Se o dashboard ainda não carregou, retorna o estado inicial para evitar erros de 'null' no componente
@@ -81,5 +92,6 @@ export function useDashboardData(): DashboardData {
     carregando,
     erro,
     recarregarDashboard: carregarDados, // A função de recarregar agora é a mesma que carrega tudo
+    recarregarUsuarios,
   };
 }

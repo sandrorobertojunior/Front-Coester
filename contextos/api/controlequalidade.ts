@@ -1,9 +1,6 @@
-// src/contextos/api/controlequalidade.types.ts
-
-// ------------------------------------------------------------------
-// --- 1. INTERFACES DE RESPOSTA DA API (DTOs - Baseado nos 'Response' Records do Java) ---
-// ------------------------------------------------------------------
-
+import { useMemo, useCallback } from "react";
+import { useAutenticacao } from "@/contextos/contexto-autenticacao";
+import api from "@/contextos/api/api"; // Cliente Axios configurado
 /**
  * Representa um usuário do sistema. (Baseado em UsuarioDto)
  */
@@ -119,6 +116,17 @@ export interface UsuarioLoginResponse {
 // ------------------------------------------------------------------
 
 /**
+ * Payload para REGISTRAR um novo usuário.
+ * (Espelha UsuarioDtoResume do Java para o payload de registro)
+ */
+export interface UsuarioRegisterRequest {
+  username: string;
+  email: string;
+  password: string; // Campo esperado pelo backend
+  role?: string;
+}
+
+/**
  * Payload para CRIAR um novo Tipo de Peça. (Baseado em CriarTipoPecaRequest)
  * O frontend trabalha com um array de objetos, mas a API espera um JSON. A conversão é feita no hook.
  */
@@ -155,13 +163,11 @@ export interface AdicionarMedicaoRequest {
   dimensoes: Record<string, number>;
   observacoes?: string;
 }
-
-import { useMemo, useCallback } from "react";
-import { useAutenticacao } from "@/contextos/contexto-autenticacao";
-import api from "@/contextos/api/api"; // Cliente Axios configurado
-
 // --- CONTRATO DO HOOK (A interface que ele expõe) ---
 export interface IControleQualidadeApi {
+  // --- Autenticação (Adicionado o endpoint de registro) ---
+  register: (data: UsuarioRegisterRequest) => Promise<UsuarioDto>;
+
   // Tipos de Peça
   listarTiposPeca: () => Promise<TipoPecaResponse[]>;
   obterTipoPeca: (id: number | string) => Promise<TipoPecaResponse>;
@@ -227,6 +233,16 @@ export function useControleQualidadeApi(): IControleQualidadeApi {
 
   const apiFunctions: IControleQualidadeApi = useMemo(
     () => ({
+      // ** 💡 IMPLEMENTAÇÃO DO REGISTER **
+      register: async (data) => {
+        console.log("[API REQ] POST /api/auth/register", { payload: data });
+        // O registro é o único método que não precisa de checkAuth()
+        const response = await api.post<UsuarioDto>("/api/auth/register", data);
+        console.log("[API RES] POST /api/auth/register", {
+          response: response.data,
+        });
+        return response.data;
+      },
       // --- Tipos de Peça ---
       cadastrarTipoPeca: async (data) => {
         checkAuth();
