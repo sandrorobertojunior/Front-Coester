@@ -76,6 +76,11 @@ function BluetoothStatus({
   const statusColor = isConnected ? "text-green-500" : "text-red-500";
   const statusBg = isConnected ? "bg-green-100/50" : "bg-red-100/50";
   const statusTextColor = isConnected ? "text-green-800" : "text-red-800";
+  const mainStatusMessage = isConnecting
+    ? "Buscando dispositivo..."
+    : isConnected
+    ? "Conectado e pronto para uso."
+    : status;
 
   return (
     <div className="p-4 border-b border-sidebar-border space-y-3">
@@ -96,17 +101,14 @@ function BluetoothStatus({
           {isConnected ? "CONECTADO" : "OFFLINE"}
         </div>
       </div>
-
       <p className="text-xs text-sidebar-foreground/70 mb-2 min-h-[1.5rem]">
-        {isConnecting ? "Buscando dispositivo..." : status}
+        {mainStatusMessage}
         {deviceName && isConnected && (
           <span className="font-medium block truncate mt-0.5 text-sidebar-foreground">
             Dispositivo: {deviceName}
           </span>
         )}
       </p>
-
-      {/* Botão de Ação: Conectar ou Desconectar */}
       <Button
         variant={isConnected ? "destructive" : "default"}
         size="sm"
