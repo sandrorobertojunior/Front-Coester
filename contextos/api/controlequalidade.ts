@@ -237,7 +237,10 @@ export function useControleQualidadeApi(): IControleQualidadeApi {
       register: async (data) => {
         console.log("[API REQ] POST /api/auth/register", { payload: data });
         // O registro é o único método que não precisa de checkAuth()
-        const response = await api.post<UsuarioDto>("/api/auth/register", data);
+        const response = await api.post<UsuarioDto>(
+          "/api/admin/register",
+          data
+        );
         console.log("[API RES] POST /api/auth/register", {
           response: response.data,
         });

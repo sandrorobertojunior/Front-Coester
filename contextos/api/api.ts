@@ -2,7 +2,7 @@
 
 import axios, { AxiosInstance } from "axios";
 
-const BASE_URL = "http://localhost:9090";
+export const BASE_URL = "http://localhost:9090";
 
 const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
@@ -20,7 +20,7 @@ export const setAuthToken = (token: string | null) => {
 api.interceptors.request.use(
   (config) => {
     // Verifica se o token existe E se a requisição não é para a rota de login
-    if (currentAuthToken && !config.url?.includes("/auth/login")) {
+    if (currentAuthToken && !config.url?.includes("api/auth/login")) {
       // Garante que o token Basic já está formatado.
       // Se você está enviando o token puro (sem "Basic "), ajuste o backend
       // ou adicione "Basic " aqui, mas assumimos que o `login` já retorna formatado.

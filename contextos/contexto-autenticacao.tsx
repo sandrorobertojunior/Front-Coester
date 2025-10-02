@@ -4,12 +4,10 @@
 import type React from "react";
 import { createContext, useContext, useState, useEffect } from "react";
 import axios from "axios";
-import { setAuthToken } from "./api/api"; // Importa a função de token
+import { BASE_URL, setAuthToken } from "./api/api"; // Importa a função de token
 
 // --- CONSTANTES ---
-const BASE_URL = "http://localhost:9090";
 const LOGIN_ENDPOINT = `${BASE_URL}/auth/login`;
-
 // Tipos e Interfaces (Atualizado para "colaborador" e "administrador")
 export type TipoUsuario = "colaborador" | "administrador";
 
