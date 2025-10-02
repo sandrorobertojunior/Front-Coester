@@ -51,10 +51,10 @@ export function FormularioLogin() {
             </div>
           </div>
           <CardTitle className="text-2xl font-bold text-foreground">
-            Sistema de Medição
+            QUALITY WEB
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            Faça login para acessar o sistema de medição de peças
+            Faça login para acessar o QUALITY WEB
           </CardDescription>
         </CardHeader>
 

@@ -236,7 +236,7 @@ export function Sidebar({
           </div> */}
           <div>
             <h1 className="font-bold text-lg text-sidebar-foreground">
-              Sistema de Medição
+              QUALITY WEB
             </h1>
             <p className="text-xs text-sidebar-foreground/70"></p>
           </div>
