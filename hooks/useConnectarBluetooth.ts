@@ -6,14 +6,13 @@ export interface BluetoothHook {
   status: string;
   valorMicrometro: string;
   isConnected: boolean;
-  isConnecting: boolean; // 👈 Adicionado aqui
+  isConnecting: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
   deviceName: string | null;
   resetarValorMicrometro: () => void;
 }
 
-// UUIDs específicos para o micrômetro, mantidos para o caso de o dispositivo ser um
 const MITUTOYO_SERVICE_UUID = "7eafd361-f150-4785-b307-47d34ed52c3c";
 const MITUTOYO_CHARACTERISTIC_UUID = "7eafd361-f151-4785-b307-47d34ed52c3c";
 const CASAS_DECIMAIS = 3;
@@ -36,7 +35,7 @@ function decodeMitutoyoUwave(dataView: DataView): number | null {
 }
 
 // =========================================================================
-// HOOK MODIFICADO PARA ACEITAR TODOS OS DISPOSITIVOS
+// HOOK CORRIGIDO E OTIMIZADO
 // =========================================================================
 export function useConnectarBluetooth(): BluetoothHook {
   const [status, setStatus] = useState("Clique para conectar");
@@ -57,7 +56,6 @@ export function useConnectarBluetooth(): BluetoothHook {
 
     const valorFinal = decodeMitutoyoUwave(target.value);
     if (valorFinal !== null) {
-      console.log(valorFinal);
       const formattedValue = valorFinal.toFixed(CASAS_DECIMAIS);
       setValorMicrometro(formattedValue);
     }
@@ -69,43 +67,30 @@ export function useConnectarBluetooth(): BluetoothHook {
     setDevice(null);
     setCharacteristic(null);
     setIsConnected(false);
-    setIsConnecting(false);
+    setIsConnecting(false); // Garante que o estado de conexão seja resetado
   }, [device]);
 
+  // ✅ useEffect agora SÓ gerencia listeners
   useEffect(() => {
-    if (device) {
-      device.addEventListener("gattserverdisconnected", onDisconnected);
+    // Se não há dispositivo ou característica, não há o que fazer.
+    if (!device || !characteristic) {
+      return;
     }
 
-    if (characteristic) {
-      characteristic.addEventListener(
+    // Adiciona os listeners
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    characteristic.addEventListener(
+      "characteristicvaluechanged",
+      handleNotifications
+    );
+
+    // Função de limpeza: remove os listeners para evitar memory leaks
+    return () => {
+      device.removeEventListener("gattserverdisconnected", onDisconnected);
+      characteristic.removeEventListener(
         "characteristicvaluechanged",
         handleNotifications
       );
-      characteristic
-        .startNotifications()
-        .then(() => {
-          setStatus(`PRONTO! Conectado a: ${device?.name}.`);
-          setIsConnected(true);
-          setIsConnecting(false);
-          console.log("Notificações iniciadas com sucesso.");
-        })
-        .catch((error) => {
-          setStatus(`Erro ao iniciar notificações: ${error.message}`);
-          setIsConnecting(false);
-        });
-    }
-
-    return () => {
-      if (device) {
-        device.removeEventListener("gattserverdisconnected", onDisconnected);
-      }
-      if (characteristic) {
-        characteristic.removeEventListener(
-          "characteristicvaluechanged",
-          handleNotifications
-        );
-      }
     };
   }, [device, characteristic, onDisconnected, handleNotifications]);
 
@@ -115,8 +100,10 @@ export function useConnectarBluetooth(): BluetoothHook {
       return;
     }
 
+    // 👈 1. Inicia o processo de conexão
     setStatus("Procurando por dispositivo...");
     setIsConnecting(true);
+    setIsConnected(false);
 
     try {
       const newDevice = await navigator.bluetooth.requestDevice({
@@ -124,21 +111,22 @@ export function useConnectarBluetooth(): BluetoothHook {
         optionalServices: [MITUTOYO_SERVICE_UUID],
       });
 
-      setDevice(newDevice);
       setStatus(`Conectando a: ${newDevice.name || "Dispositivo"}...`);
-
       const server = await newDevice.gatt!.connect();
       const service = await server.getPrimaryService(MITUTOYO_SERVICE_UUID);
       const newCharacteristic = await service.getCharacteristic(
         MITUTOYO_CHARACTERISTIC_UUID
       );
 
-      setCharacteristic(newCharacteristic);
+      // Inicia as notificações DENTRO da função connect
+      await newCharacteristic.startNotifications();
 
-      // ✅ Trate tudo aqui, sem usar useEffect
+      // ✅ 2. Processo concluído com sucesso!
+      // Agora definimos o estado final da conexão.
+      setDevice(newDevice);
+      setCharacteristic(newCharacteristic);
       setIsConnected(true);
-      setStatus("Conectado com sucesso");
-      setIsConnecting(false); // <- ESSENCIAL aqui
+      setStatus(`PRONTO! Conectado a: ${newDevice.name}.`);
     } catch (error: any) {
       if (error.name === "NotFoundError") {
         setStatus("Seleção cancelada ou nenhum dispositivo encontrado.");
@@ -146,19 +134,25 @@ export function useConnectarBluetooth(): BluetoothHook {
         setStatus(`Erro de Conexão: ${error.message}`);
       }
       console.error("Erro completo de conexão Bluetooth:", error);
+      // Limpa tudo em caso de erro
       setDevice(null);
+      setCharacteristic(null);
       setIsConnected(false);
-      setIsConnecting(false); // <- também no erro
+    } finally {
+      // 👈 3. Independentemente de sucesso ou falha, o processo "conectando" acabou.
+      setIsConnecting(false);
     }
   }, []);
 
   const disconnect = useCallback(() => {
     if (device?.gatt?.connected) {
       device.gatt.disconnect();
-      setIsConnected(false);
-      setIsConnecting(false);
+      // O listener 'onDisconnected' vai limpar o resto do estado.
+    } else {
+      // Força a limpeza caso não haja uma conexão ativa para desconectar
+      onDisconnected();
     }
-  }, [device]);
+  }, [device, onDisconnected]);
 
   return {
     status,

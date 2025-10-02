@@ -153,11 +153,6 @@ export function FormularioMedicaoPecas({
   const inputRefs = useRef<Record<string, HTMLInputElement>>({});
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
 
-  // ESTADO MOVIDO PARA O NÍVEL SUPERIOR (Hook 18 na sua lista anterior)
-  const [loteFinalizado, setLoteFinalizado] = useState<LoteResponse | null>(
-    null
-  );
-
   const camposParaFoco = useMemo(() => {
     if (!tipoPeca || !Array.isArray(tipoPeca.metadadosCotas)) {
       return [];
@@ -230,36 +225,6 @@ export function FormularioMedicaoPecas({
       passarProProximoInput();
     }
   }, [modo, tipoPeca, camposParaFoco, campoFocado, passarProProximoInput]);
-
-  // NOVO USE EFFECT MOVIDO PARA O NÍVEL SUPERIOR
-  useEffect(() => {
-    const carregarLote = async () => {
-      // ✅ CLÁUSULA DE GUARDA: Resolve o erro de tipagem 'number | null'
-      if (loteSelecionadoId === null) {
-        setLoteFinalizado(null);
-        return;
-      }
-
-      let loteCarregado: LoteResponse | null = null;
-
-      try {
-        // Chamada Segura: TypeScript agora sabe que loteSelecionadoId é um 'number'.
-        const resultadoAPI = await obterLote(loteSelecionadoId);
-
-        if (resultadoAPI) {
-          loteCarregado = resultadoAPI;
-        }
-      } catch (error) {
-        console.error("Erro fatal ao carregar o lote:", error);
-      }
-
-      setLoteFinalizado(loteCarregado);
-    };
-
-    carregarLote();
-
-    // Dependências: loteSelecionadoId (que é number|null) e a função 'obterLote'
-  }, [loteSelecionadoId, obterLote]);
 
   const CampoMedicaoAutomatica = ({ campo }: { campo: CampoParaMedicao }) => {
     const valor = valores[campo.nome] || "";

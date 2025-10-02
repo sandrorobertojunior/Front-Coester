@@ -229,9 +229,9 @@ export function Sidebar({
       {/* Header da sidebar */}
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-sidebar-primary rounded-lg">
+          {/* <div className="p-2 bg-sidebar-primary rounded-lg">
             <Ruler className="h-6 w-6 text-sidebar-primary-foreground" />
-          </div>
+          </div> */}
           <div>
             <h1 className="font-bold text-lg text-sidebar-foreground">
               Sistema de Medição
